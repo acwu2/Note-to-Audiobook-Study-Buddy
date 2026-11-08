@@ -173,3 +173,65 @@ export interface Deck {
   attemptId: string;
   cards: Flashcard[];
 }
+
+/* ---- Study loop: read a review, take the quiz, drill what you missed ----
+ *
+ * These three are one loop, not three features. `pointId` is the thread: every
+ * quiz question names the review point it tests, and a flashcard is only ever
+ * made from a point this student actually got wrong.
+ */
+
+export interface ReviewPoint {
+  id: string;
+  heading: string;
+  body: string;
+  source: LineSource;
+  /** True only where the notes themselves flag it as examinable. */
+  exam: boolean;
+}
+
+export interface QuizQuestion {
+  /** The review point this tests. Always matches a ReviewPoint.id. */
+  pointId: string;
+  q: string;
+  /** Exactly four, all distinct. */
+  options: string[];
+  /** Index into options. Present so the UI can mark without a round trip. */
+  answer: number;
+  why: string;
+}
+
+export interface Review {
+  reviewId: string;
+  noteId: string;
+  title: string;
+  points: ReviewPoint[];
+  /** Written with the review and stored beside it, so the two cannot drift. */
+  questions: QuizQuestion[];
+}
+
+export interface QuizResult {
+  pointId: string;
+  /** What the student picked, or null if they skipped it. */
+  picked: number | null;
+  correct: boolean;
+  answer: number;
+  why: string;
+}
+
+export interface Flashcard {
+  /** The missed point this drills. */
+  pointId: string;
+  front: string;
+  back: string;
+}
+
+export interface Marks {
+  reviewId: string;
+  score: number;
+  total: number;
+  results: QuizResult[];
+  missedPointIds: string[];
+  /** Empty on a perfect score — there is nothing to reinforce. */
+  cards: Flashcard[];
+}

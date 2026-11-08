@@ -10,6 +10,7 @@ from . import config
 
 NOTE_ID = re.compile(r"^n_[0-9a-f]{12}$")
 PODCAST_ID = re.compile(r"^p_[0-9a-f]{12}$")
+REVIEW_ID = re.compile(r"^r_[0-9a-f]{12}$")
 
 
 def _mode() -> str:
@@ -38,6 +39,25 @@ def podcast_id_for(note_id: str, option_id: str, request: str = "") -> str:
     """
     key = f"{_mode()}|{note_id}|{option_id}|{normalize_request(request)}".encode()
     return "p_" + hashlib.sha256(key).hexdigest()[:12]
+
+
+def review_id_for(note_id: str) -> str:
+    """One review per set of notes, so a reload returns the same study session."""
+    return "r_" + hashlib.sha256(f"{_mode()}|review|{note_id}".encode()).hexdigest()[:12]
+
+
+def review_path(review_id: str) -> Path:
+    return config.DATA_DIR / "reviews" / f"{review_id}.json"
+
+
+def save_review(review_id: str, value: dict) -> None:
+    _write_json(review_path(review_id), value)
+
+
+def load_review(review_id: str) -> dict | None:
+    if not REVIEW_ID.match(review_id):
+        return None
+    return _read_json(review_path(review_id))
 
 
 def _write_json(path: Path, value: dict) -> None:

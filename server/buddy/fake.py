@@ -67,3 +67,64 @@ SCRIPTS = {
         {"host": "Michael", "text": "Two names, twice per glucose, and it feeds the next stage. That is the whole of it.", "source": "notes", "role": "recap"},
     ],
 }
+
+
+# A review, a quiz that tests it point by point, and cards for the points a
+# student is most likely to miss. Keyed by pointId, same as the real path.
+REVIEW = {
+    "title": "Cellular respiration, the three stages",
+    "points": [
+        {"id": "p1", "heading": "What respiration is for",
+         "body": "Cellular respiration is how a cell turns glucose into ATP, the form of energy it can actually spend. Every stage below exists to serve that one job.",
+         "source": "added", "exam": False},
+        {"id": "p2", "heading": "Glycolysis, in the cytoplasm",
+         "body": "The first stage is glycolysis, and it happens in the cytoplasm. It is the only stage that takes place outside the mitochondria.",
+         "source": "notes", "exam": False},
+        {"id": "p3", "heading": "The Krebs cycle",
+         "body": "The second stage is the Krebs cycle, also called the citric acid cycle. It runs twice for every glucose molecule.",
+         "source": "notes", "exam": False},
+        {"id": "p4", "heading": "The electron transport chain",
+         "body": "The third stage is the electron transport chain, and it makes most of the ATP: about thirty-four of them.",
+         "source": "notes", "exam": True},
+        {"id": "p5", "heading": "What the Krebs cycle hands on",
+         "body": "The Krebs cycle produces NADH and FADH2, and those feed the electron transport chain. That handover is why the stages must run in order.",
+         "source": "notes", "exam": False},
+    ],
+}
+
+QUIZ = [
+    {"pointId": "p1", "q": "What is the point of cellular respiration?",
+     "options": ["To turn glucose into ATP the cell can spend",
+                 "To turn ATP back into glucose for storage",
+                 "To move oxygen from the blood into the cell",
+                 "To build proteins out of amino acids"],
+     "answer": 0, "why": "Respiration converts glucose into ATP, the form of energy a cell can actually use."},
+    {"pointId": "p2", "q": "Where does glycolysis take place?",
+     "options": ["In the cytoplasm", "In the mitochondria",
+                 "On the inner mitochondrial membrane", "In the nucleus"],
+     "answer": 0, "why": "Glycolysis is the one stage outside the mitochondria: it happens in the cytoplasm."},
+    {"pointId": "p3", "q": "How many times does the Krebs cycle run per glucose molecule?",
+     "options": ["Twice", "Once", "Four times", "Thirty-four times"],
+     "answer": 0, "why": "The review states the Krebs cycle runs twice for every glucose molecule."},
+    {"pointId": "p4", "q": "Which stage makes most of the ATP, and roughly how much?",
+     "options": ["The electron transport chain, about thirty-four",
+                 "Glycolysis, about thirty-four",
+                 "The Krebs cycle, about thirty-four",
+                 "The electron transport chain, about two"],
+     "answer": 0, "why": "The electron transport chain is the third stage and produces about thirty-four ATP."},
+    {"pointId": "p5", "q": "What does the Krebs cycle hand on, and to what?",
+     "options": ["NADH and FADH2, to the electron transport chain",
+                 "ATP and oxygen, to the cytoplasm",
+                 "Glucose and NADH, to glycolysis",
+                 "NADH and FADH2, to the Krebs cycle again"],
+     "answer": 0, "why": "The Krebs cycle produces NADH and FADH2, which feed the electron transport chain."},
+]
+
+CARDS = [
+    {"pointId": "p1", "front": "ATP is to a cell what ___ is to you", "back": "spendable money — the form of energy it can actually use"},
+    {"pointId": "p2", "front": "The one stage outside the mitochondria", "back": "Glycolysis, in the cytoplasm"},
+    {"pointId": "p3", "front": "Krebs cycle: how many turns per glucose?", "back": "Two"},
+    {"pointId": "p3", "front": "Another name for the Krebs cycle", "back": "The citric acid cycle"},
+    {"pointId": "p4", "front": "Where do the ~34 ATP come from?", "back": "The electron transport chain, the third stage"},
+    {"pointId": "p5", "front": "NADH and FADH2 are made by ___ and used by ___", "back": "made by the Krebs cycle, used by the electron transport chain"},
+]

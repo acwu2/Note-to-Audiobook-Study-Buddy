@@ -207,3 +207,81 @@ def get_audio(podcast_id: str, download: bool = False) -> FileResponse:
         filename=f"{name or 'podcast'}.mp3",
         content_disposition_type="attachment" if download else "inline",
     )
+
+
+# ---- Study loop: read a review, take the quiz, drill what you missed ----
+
+
+class ReviewRequest(BaseModel):
+    noteId: str
+
+
+class AnswerSheet(BaseModel):
+    reviewId: str
+    # pointId -> the index the student picked. Missing means unanswered, which
+    # counts as missed: not knowing and not answering are the same gap.
+    answers: dict[str, int] = {}
+
+
+@app.post("/api/reviews")
+def create_review(req: ReviewRequest) -> dict:
+    note = store.load_note(req.noteId)
+    if note is None:
+        raise HTTPException(404, "Those notes aren't on the server any more. Upload them again.")
+    review_id = store.review_id_for(req.noteId)
+    cached = store.load_review(review_id)
+    if cached:
+        return cached
+
+    transcripts = [p["transcript"] for p in note["pages"]]
+    doc = llm.write_review(transcripts)
+    quiz = llm.write_quiz(doc)
+    review = {
+        "reviewId": review_id,
+        "noteId": req.noteId,
+        "title": doc.title or note.get("topic", "Review"),
+        "points": [p.model_dump(mode="json") for p in doc.points],
+        # The quiz is written with the review and stored with it, so the two can
+        # never drift apart — a question always refers to a point that exists.
+        "questions": [q.model_dump(mode="json") for q in quiz.questions],
+    }
+    store.save_review(review_id, review)
+    return review
+
+
+@app.post("/api/reviews/{review_id}/marks")
+def mark_quiz(review_id: str, sheet: AnswerSheet) -> dict:
+    """Mark the quiz and build flashcards from exactly what was missed."""
+    review = store.load_review(review_id)
+    if review is None:
+        raise HTTPException(404, "That review has expired. Make a new one from your notes.")
+
+    questions = {q["pointId"]: q for q in review["questions"]}
+    results, missed, chosen = [], [], {}
+    for point_id, q in questions.items():
+        picked = sheet.answers.get(point_id)
+        correct = picked == q["answer"]
+        if not correct:
+            missed.append(point_id)
+            if isinstance(picked, int) and 0 <= picked < len(q["options"]):
+                chosen[point_id] = q["options"][picked]
+        results.append({
+            "pointId": point_id,
+            "picked": picked,
+            "correct": correct,
+            "answer": q["answer"],
+            "why": q.get("why", ""),
+        })
+
+    doc = llm.ReviewDoc(points=[llm.ReviewPoint(**p) for p in review["points"]])
+    cards = llm.write_cards(doc, missed, chosen)
+    return {
+        "reviewId": review_id,
+        "score": len(questions) - len(missed),
+        "total": len(questions),
+        "results": results,
+        "missedPointIds": missed,
+        # Empty when they got everything right — there is nothing to reinforce,
+        # and inventing cards would waste the one thing this step is good at.
+        "cards": [c.model_dump(mode="json") for c in cards.cards],
+    }

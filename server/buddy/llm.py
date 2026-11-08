@@ -426,3 +426,201 @@ def _repair_arc(lines: list[Line]) -> list[Line]:
                 lines[i] = line.model_copy(update={"role": Role.TEACH})
 
     return lines
+
+
+# ================= Review -> Quiz -> Flashcards =================
+#
+# These three are one loop, not three features. The quiz can only be fair if it
+# asks about what the review actually taught, and the flashcards can only help
+# if they drill what this student personally got wrong. So every quiz question
+# names the review point it tests, and a card is only ever made from a point the
+# student missed. The pointId is the thread that ties them together.
+
+REVIEW_PROMPT = """Write a study review of a student's notes: the page they read before being tested.
+
+It is read, not heard, so it can use structure the spoken lesson cannot. It must
+be worth reading on its own, and it must be made of discrete points, because each
+one will be tested separately afterwards.
+
+- Between four and nine points. One idea each — never two facts welded together,
+  since a question about a double point cannot be marked fairly.
+- heading: what the point is about, two to six words, the notes' own vocabulary.
+- body: one to three sentences teaching it. Say what it is and why it matters.
+- source "notes" when every fact in the body is in the notes; "added" when the
+  body brings in context, an analogy or a definition the notes do not give.
+- exam: true only where the notes themselves flag it as examinable ("on the exam",
+  starred, underlined). Never guess at what an examiner wants.
+- Order them so an earlier point never depends on a later one.
+- Skip anything marked [unclear]. Do not guess at it.
+
+Also give the review a title of at most eight words, naming the subject.
+
+Notes:
+{notes}"""
+
+QUIZ_PROMPT = """Write quiz questions on a review a student has just read.
+
+Each question tests exactly one point of the review, and says which by its id.
+A student who read and understood that point answers correctly; a student who
+skimmed does not. So do not ask what the point's heading already states.
+
+- One question per point, in the review's order, for the points listed below.
+- pointId: the id of the point the question tests. Use the ids exactly as given.
+- q: the question. Ask about what the point actually says, not around it.
+- options: exactly four, one correct. Wrong options must be plausible to someone
+  who half-remembers — a near-miss number, a neighbouring term, the right idea
+  attached to the wrong thing. Never filler nobody would pick.
+- answer: the index, 0 to 3, of the correct option.
+- why: one sentence on why it is right, in the review's own words.
+
+Use only what the review says. Do not test outside knowledge, and do not test an
+"added" point any harder than a "notes" one.
+
+Review:
+{review}"""
+
+CARDS_PROMPT = """Write flashcards for a student who has just got some quiz questions wrong.
+
+Below are only the review points they missed. They have already read the review
+and failed to retain these, so a card that merely restates the point will fail the
+same way. Come at each from a different angle than the review did.
+
+- One or two cards per missed point. Two only where the point genuinely holds two
+  things worth recalling separately.
+- front: a question or a prompt, short enough to read at a glance.
+- back: the answer, in the fewest words that are still complete.
+- pointId: the point this card drills. Use the ids exactly as given.
+- Where the student picked a particular wrong answer, aim the card at that
+  confusion specifically rather than at the topic in general.
+- Stay inside what the review says. No new facts.
+
+Missed points:
+{points}"""
+
+
+class ReviewPoint(BaseModel):
+    id: str
+    heading: str
+    body: str
+    source: Source = Source.NOTES
+    exam: bool = False
+
+
+class ReviewDoc(BaseModel):
+    title: str = ""
+    points: list[ReviewPoint]
+
+
+class QuizQuestion(BaseModel):
+    pointId: str
+    q: str
+    options: list[str]
+    answer: int
+    why: str = ""
+
+
+class QuizDoc(BaseModel):
+    questions: list[QuizQuestion]
+
+
+class Card(BaseModel):
+    pointId: str
+    front: str
+    back: str
+
+
+class CardsDoc(BaseModel):
+    cards: list[Card]
+
+
+def _point_id(i: int) -> str:
+    return f"p{i + 1}"
+
+
+def write_review(transcripts: list[str]) -> ReviewDoc:
+    """The page the student reads before being tested on it."""
+    if config.FAKE_AI:
+        return ReviewDoc(**fake.REVIEW)
+    doc = _generate(REVIEW_PROMPT.format(notes=_notes_block(transcripts)), ReviewDoc)
+    points = []
+    for i, p in enumerate(doc.points):
+        heading = re.sub(r"\s+", " ", p.heading or "").strip()
+        body = re.sub(r"\s+", " ", p.body or "").strip()
+        if not heading or not body:
+            continue
+        # Ids are assigned here, not by the model, so the quiz can rely on them.
+        points.append(p.model_copy(update={"id": _point_id(len(points)), "heading": heading, "body": body}))
+    if not points:
+        raise PipelineError("A review could not be built from these notes. Try a clearer photo.")
+    title = re.sub(r"\s+", " ", doc.title or "").strip()[:80]
+    return ReviewDoc(title=title, points=points[:9])
+
+
+def _review_block(review: ReviewDoc) -> str:
+    out = []
+    for p in review.points:
+        flag = " [flagged as examinable]" if p.exam else ""
+        out.append(f"[{p.id}] {p.heading}{flag}\n{p.body}")
+    return "\n\n".join(out)
+
+
+def write_quiz(review: ReviewDoc) -> QuizDoc:
+    """One question per review point, each naming the point it tests."""
+    if config.FAKE_AI:
+        qs = [QuizQuestion(**q) for q in fake.QUIZ]
+        return QuizDoc(questions=_clean_quiz(qs, review))
+    doc = _generate(QUIZ_PROMPT.format(review=_review_block(review)), QuizDoc)
+    questions = _clean_quiz(doc.questions, review)
+    if not questions:
+        raise PipelineError("A quiz could not be written from this review.")
+    return QuizDoc(questions=questions)
+
+
+def _clean_quiz(questions: list[QuizQuestion], review: ReviewDoc) -> list[QuizQuestion]:
+    """Drop anything that breaks the chain or cannot be marked.
+
+    A question whose pointId names no real point is unmarkable and unusable for
+    flashcards afterwards, so it goes. So does one without exactly four distinct
+    options, or whose answer index is out of range.
+    """
+    valid = {p.id for p in review.points}
+    order = {p.id: i for i, p in enumerate(review.points)}
+    seen: set[str] = set()
+    out: list[QuizQuestion] = []
+    for q in questions:
+        opts = [re.sub(r"\s+", " ", str(o)).strip() for o in (q.options or [])]
+        if q.pointId not in valid or q.pointId in seen:
+            continue
+        if len(opts) != 4 or len(set(opts)) != 4 or not all(opts):
+            continue
+        if not isinstance(q.answer, int) or not (0 <= q.answer < 4):
+            continue
+        if not str(q.q or "").strip():
+            continue
+        seen.add(q.pointId)
+        out.append(q.model_copy(update={"options": opts, "q": q.q.strip()}))
+    out.sort(key=lambda q: order[q.pointId])
+    return out
+
+
+def write_cards(review: ReviewDoc, missed: list[str], chosen: dict[str, str] | None = None) -> CardsDoc:
+    """Cards for the points this student actually got wrong. Nothing else."""
+    wanted = [p for p in review.points if p.id in set(missed)]
+    if not wanted:
+        return CardsDoc(cards=[])
+    if config.FAKE_AI:
+        cards = [Card(**c) for c in fake.CARDS if c["pointId"] in {p.id for p in wanted}]
+        return CardsDoc(cards=cards)
+    blocks = []
+    for p in wanted:
+        wrong = (chosen or {}).get(p.id)
+        note = f"\nThey answered: {wrong}" if wrong else ""
+        blocks.append(f"[{p.id}] {p.heading}\n{p.body}{note}")
+    doc = _generate(CARDS_PROMPT.format(points="\n\n".join(blocks)), CardsDoc)
+    valid = {p.id for p in wanted}
+    cards = [
+        c.model_copy(update={"front": c.front.strip(), "back": c.back.strip()})
+        for c in doc.cards
+        if c.pointId in valid and str(c.front or "").strip() and str(c.back or "").strip()
+    ]
+    return CardsDoc(cards=cards[: 2 * len(wanted)])
