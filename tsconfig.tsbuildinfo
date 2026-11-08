@@ -1,1 +1,0 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/ChatPanel.tsx","./src/components/Icons.tsx","./src/components/SourcesPanel.tsx","./src/components/StudioPanel.tsx","./src/components/TopBar.tsx","./src/data/sampleNotebook.ts","./src/lib/api.ts","./src/lib/useAudiobookPlayer.ts","./vite.config.ts"],"version":"5.9.3"}
