@@ -1,0 +1,15 @@
+Bio 204 — Lecture 7  (Tues)
+PHOTOSYNTHESIS: light-dependent rxns
+
+1st stage happens in thylakoid membrane.
+Pigment = chlorophyll a & b, absorbs ~430nm + ~662nm (blue + red). Reflects green -> that's why leaves look green.
+
+Photon hits PSII -> electron excited -> passed down ETC -> PSI -> NADP+ + H -> NADPH
+H2O is split (photolysis) to replace the lost e-.  2H2O -> 4H+ + 4e- + O2
+** the O2 we breathe is a waste product. Prof said this is on the exam.
+
+H+ builds up inside thylakoid -> gradient -> ATP synthase -> ATP  (chemiosmosis)
+
+Outputs of stage 1: ATP, NADPH, O2
+Ch. 8 p.214-219 for the Calvin cycle (stage 2) — read before Thurs.
+Q for office hrs: why does [unclear] only happen at ~50% efficiency?
