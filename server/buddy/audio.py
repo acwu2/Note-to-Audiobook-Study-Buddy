@@ -81,6 +81,8 @@ def _gap_after(role: str, nxt: tuple | None, host: str) -> float:
     """
     if role == "check":
         return config.THINK_SECONDS
+    if role.startswith("ask:"):
+        return float(role.split(":", 1)[1])  # a spoken quiz's answer window
     if nxt is None:
         return config.TAIL_SECONDS
     # An opening or a chapter announcement is followed by a beat before the

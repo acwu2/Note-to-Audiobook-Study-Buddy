@@ -344,3 +344,62 @@ export interface Outline {
   /** Title, length, contents and a section per chapter, as plain text. */
   text: string;
 }
+
+/* ---- Spoken quiz: the questions read aloud, and a judge for the reply ----
+ *
+ * POST /api/reviews/{reviewId}/voice-quiz { answerSeconds? }  -> VoiceQuiz   (first call renders ~25s)
+ * GET  audioUrl                                               -> mp3, each question a chapter in the file
+ * POST /api/voice-quizzes/{quizId}/judge  multipart: recording (any audio) and/or text -> Judgement
+ *
+ * To turn the misses into flashcards, send Judgement.answers to
+ * POST /api/reviews/{reviewId}/attempt, as for a quiz taken on screen.
+ */
+
+export interface VoiceQuizQuestion {
+  /** The quiz question id; the key in Judgement.answers. */
+  id: string;
+  number: number;
+  q: string;
+  options: string[];
+  startSeconds: number;
+  /** The silence the student answers in. Slice or highlight this range of the audio. */
+  answerStartSeconds: number;
+  answerEndSeconds: number;
+}
+
+export interface VoiceQuiz {
+  quizId: string;
+  reviewId: string;
+  title: string;
+  /** How long the audio waits after each question. */
+  answerSeconds: number;
+  seconds: number;
+  questions: VoiceQuizQuestion[];
+  audioUrl: string;
+}
+
+export interface JudgedAnswer {
+  questionId: string;
+  number: number;
+  q: string;
+  options: string[];
+  /** What the student was heard to say for this question. Show it, so a misheard answer can be spotted. */
+  heard: string;
+  /** Index of the option they chose, or null when no answer was heard or it matched no option. */
+  picked: number | null;
+  skipped: boolean;
+  correct: boolean;
+  answer: number;
+  /** The stored explanation, with the right answer named when they missed. Never model-written. */
+  feedback: string;
+}
+
+export interface Judgement {
+  quizId: string;
+  reviewId: string;
+  score: number;
+  total: number;
+  results: JudgedAnswer[];
+  /** { questionId: optionIndex } for the questions they answered. Pass to /attempt. */
+  answers: Record<string, number>;
+}
