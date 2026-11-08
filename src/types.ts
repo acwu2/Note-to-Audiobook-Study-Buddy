@@ -100,3 +100,76 @@ export interface Upload {
   file: File;
   previewUrl: string | null;
 }
+
+/* ---- Listen → quiz → flashcards for what you missed ---------------------- */
+
+/**
+ * A quiz question as the student receives it. The correct answer and the
+ * explanation are deliberately absent: marking happens on the server, so the
+ * answers are never sitting in the page.
+ */
+export interface QuizQuestion {
+  id: string;
+  q: string;
+  options: string[];
+}
+
+export interface Quiz {
+  id: string;
+  podcastId: string;
+  questions: QuizQuestion[];
+}
+
+/** One marked question, returned after an attempt is submitted. */
+export interface QuizResult {
+  questionId: string;
+  q: string;
+  options: string[];
+  /** What they chose, or null when they left it blank. */
+  chosen: number | null;
+  answer: number;
+  correct: boolean;
+  why: string;
+  /** The idea this question tested. Missing it is what makes it a weak point. */
+  concept: string;
+}
+
+/**
+ * A weakness the attempt exposed. One gap per concept, however many questions
+ * on that concept were missed — two misses on the same idea is one weakness.
+ */
+export interface Gap {
+  concept: string;
+  misses: { q: string; chose: string | null; right: string; skipped: boolean }[];
+  /** Lesson lines that taught this, so the UI can offer to replay them. */
+  lineRefs: number[];
+}
+
+export interface Attempt {
+  id: string;
+  quizId: string;
+  podcastId: string;
+  score: number;
+  total: number;
+  results: QuizResult[];
+  gaps: Gap[];
+}
+
+/**
+ * A card written against a gap, not a replay of the question. `because` names
+ * the mistake it answers ("you picked the cytoplasm"), so the student can see
+ * why this card is in front of them.
+ */
+export interface Flashcard {
+  front: string;
+  back: string;
+  concept: string;
+  because: string;
+}
+
+/** Empty `cards` is a clean sweep, not a failure: there is nothing to drill. */
+export interface Deck {
+  id: string;
+  attemptId: string;
+  cards: Flashcard[];
+}

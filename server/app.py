@@ -10,11 +10,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from buddy import config, jobs, llm, store
+from buddy import config, jobs, llm, quiz_api, store
 from buddy.formats import FORMAT_ORDER, FORMATS, PipelineError
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Study Buddy API")
+
+# Listen → quiz → flashcards for what you missed. Routes live in buddy/quiz_api.py.
+app.include_router(quiz_api.router)
 
 
 @app.exception_handler(RequestValidationError)
