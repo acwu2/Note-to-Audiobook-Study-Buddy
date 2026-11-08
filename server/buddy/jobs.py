@@ -53,13 +53,18 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
             transcripts = [p["transcript"] for p in note["pages"]]
             written = llm.write_script(transcripts, option["id"], option.get("topic"))
             lines = [
-                {"host": line.host.value, "text": line.text.strip(), "source": line.source.value}
+                {
+                    "host": line.host.value,
+                    "text": line.text.strip(),
+                    "source": line.source.value,
+                    "role": line.role.value,
+                }
                 for line in written
             ]
             store.save_script(podcast_id, lines)
         set_state("recording", script=lines)
         seconds = audio.render(
-            [(line["host"], line["text"]) for line in lines],
+            [(line["host"], line["text"], line.get("role", "teach")) for line in lines],
             store.audio_path(podcast_id),
             on_mixing=lambda: set_state("mixing", script=lines),
         )

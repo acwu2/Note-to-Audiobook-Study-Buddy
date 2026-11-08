@@ -58,6 +58,32 @@ six seven eight nine ten most least more less best worst top bottom end ends
 begin begins next last final finally also again plus minus each per
 """.split())
 
+# Ordinary English a teacher uses to talk *about* the material. None of these is
+# ever a claim about the subject, so flagging them only buries the real finding.
+# This list is the difference between a usable report and noise; extend it when a
+# false positive shows up, never the other way.
+STOP |= set("""
+add adds answer answers ask asks became become becomes bring brings brought
+build builds built carry carries carried catch caught change changes check
+checks choose chose comes coming cover covers covered describe described detail
+details difference different drop drops easier enough example examples explain
+explains fact facts fall falls feel few fill find finds follow follows form
+forms gave gives given goes gone group groups grow guess hand hands handed
+happen happens happened head help helps hold holds idea ideas instead involve
+involves join joins keeps kept know known lead leads learn learns leave leaves
+left lets line lines lose loses lost matter matters mean meaning means mention
+mentions mind miss misses move moves moving name names need needs note notice
+number numbers order orders pair piece pieces place places play plays points
+pull pulls push put puts question questions quick reach reaches read reads
+reason reasons recall remember result results return returns round rule rules
+run runs said save says sense sentence set sets shape share shares show shows
+side sit sits sort sound sounds speak split splits stand stands stay step stick
+sticks stop stops story straight stuck tell tells term terms test tests thing
+things think thought told top track try turn turns type under understand use
+useful uses walk walks watch ways whole word words work works worth write
+writes wrote
+""".split())
+
 # Number words, so '2x' in the notes covers 'twice' in the script.
 NUMBER_WORDS = {
     "1": {"one", "once", "single"}, "2": {"two", "twice", "double", "pair"},

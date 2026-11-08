@@ -35,10 +35,19 @@ export type PodcastStatus = 'queued' | 'writing' | 'recording' | 'mixing' | 'rea
  */
 export type LineSource = 'notes' | 'added';
 
+/**
+ * What a line is doing in the lesson. A 'check' is a question put to the student
+ * and is followed by a long silence in the audio, so they can answer out loud
+ * before the lesson continues — that pause is what makes this studying rather
+ * than listening. Older podcasts predate the field; treat a missing value as 'teach'.
+ */
+export type LineRole = 'hook' | 'teach' | 'check' | 'answer' | 'recap';
+
 export interface ScriptLine {
   host: 'Heart' | 'Michael';
   text: string;
   source?: LineSource;
+  role?: LineRole;
 }
 
 export interface Podcast {

@@ -32,13 +32,30 @@ Use only what the notes say. Ignore anything marked [unclear]. Plain words, no q
 Notes:
 {notes}"""
 
-SCRIPT_PROMPT = """Write a two-host podcast script that teaches a student their own notes.
+SCRIPT_PROMPT = """Write a two-host audio lesson from a student's notes.
 Hosts: Heart and Michael. They take turns, and Heart speaks first.
-Episode: {label}. {brief}
+Lesson: {label}. {brief}
 Length: at most {words} words in total. Shorter is fine when the notes are short. Never pad.
 
-Teach, do not recite. Explain the notes so that a student who is new to the subject
-can follow them, and say why each thing matters.
+This is a lesson someone studies from, not an episode they listen to. The test is
+whether a student knows the material better at the end than at the start. Reading
+the notes aloud in a friendly voice fails that test.
+
+Every line has a role, and the lesson must have a shape:
+- "hook": why this matters, or where it sits in the bigger picture. Open with one.
+- "teach": the explanation itself. One idea per line. Build in the order that makes
+  the ideas easiest to learn, not necessarily the order they were written down.
+- "check": a question put straight to the student, who is given silence to answer
+  out loud before the lesson continues. Ask about something already taught. Ask real
+  questions with real answers, never "does that make sense?".
+- "answer": the answer to the check immediately before it. Confirm, then move on.
+- "recap": pull the thread together at the end. Finish with one.
+
+Rules for the shape:
+- Every "check" is followed immediately by its "answer".
+- Space the checks out. Teach something before you test it.
+- A lesson of more than about six lines has at least two checks.
+- Never two "hook" lines in a row, and never open with a check.
 
 Every line says where its content came from, and the student is shown those labels.
 Be strict about this; it is the whole promise of the product.
@@ -94,10 +111,21 @@ class Source(str, Enum):
     ADDED = "added"
 
 
+class Role(str, Enum):
+    """What a line is doing in the lesson. Drives pacing and the transcript view."""
+
+    HOOK = "hook"      # why this matters, where it sits
+    TEACH = "teach"    # the explanation itself
+    CHECK = "check"    # a question put to the student; silence follows
+    ANSWER = "answer"  # the answer, after the pause
+    RECAP = "recap"    # consolidation at the end
+
+
 class Line(BaseModel):
     host: Host
     text: str
     source: Source = Source.NOTES
+    role: Role = Role.TEACH
 
 
 class Script(BaseModel):
@@ -196,4 +224,34 @@ def write_script(transcripts: list[str], format_id: str, topic: str | None) -> l
     lines = [line for line in script.lines if line.text.strip()][:200]
     if not lines:
         raise PipelineError("The AI wrote an empty script. Try a clearer photo.")
+    return _repair_arc(lines)
+
+
+def _repair_arc(lines: list[Line]) -> list[Line]:
+    """Keep the lesson shape sound even when the model drifts from the brief.
+
+    Only fixes what would actually mislead a listener: a question with no answer
+    after it, or an answer with no question before it. Both leave the student
+    sitting in silence waiting for something that never comes.
+    """
+    # Order matters: each pass can create work for the next, so they run from the
+    # start of the lesson outwards.
+
+    # 1. A lesson never opens on a question.
+    if lines and lines[0].role is Role.CHECK:
+        lines[0] = lines[0].model_copy(update={"role": Role.HOOK})
+
+    # 2. An ANSWER only makes sense directly after a CHECK.
+    for i, line in enumerate(lines):
+        if line.role is Role.ANSWER and (i == 0 or lines[i - 1].role is not Role.CHECK):
+            lines[i] = line.model_copy(update={"role": Role.TEACH})
+
+    # 3. A CHECK must be answered. If the model forgot, the question still works as
+    #    teaching, and the student is not left hanging in a 3.5 second silence.
+    for i, line in enumerate(lines):
+        if line.role is Role.CHECK:
+            answered = i + 1 < len(lines) and lines[i + 1].role is Role.ANSWER
+            if not answered:
+                lines[i] = line.model_copy(update={"role": Role.TEACH})
+
     return lines

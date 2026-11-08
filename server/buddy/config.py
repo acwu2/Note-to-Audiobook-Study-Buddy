@@ -20,10 +20,11 @@ FAKE_AI = os.environ.get("FAKE_AI") == "1"
 FAKE_TTS = os.environ.get("FAKE_TTS") == "1"
 
 # Bump when a prompt, format or voice changes, so cached results are rebuilt.
-PIPELINE_VERSION = "2"
+PIPELINE_VERSION = "3"
 
 SAMPLE_RATE = 24_000  # Kokoro's output rate
 PAUSE_SECONDS = 0.35  # silence between lines
+THINK_SECONDS = 3.5   # silence after a "check" line, so the student can answer aloud
 MP3_BITRATE = "96k"
 
 MAX_FILES = 10
