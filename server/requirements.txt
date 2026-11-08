@@ -3,6 +3,7 @@ uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 python-dotenv>=1.0
 google-genai>=1.0
+pydantic>=2
 numpy>=1.26
 soundfile>=0.12
 kokoro>=0.9.4
