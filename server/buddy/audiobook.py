@@ -164,3 +164,63 @@ def ensure_m4b(out_mp3: Path) -> Path:
                 tmp.unlink(missing_ok=True)
                 raise PipelineError("Making the audiobook file failed.") from e
     return path
+
+
+# ---- The outline: a text table of contents to show beneath the player ----
+
+
+def _stamp(seconds: float) -> str:
+    s = int(round(max(0.0, seconds)))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def outline(
+    title: str,
+    topic: str,
+    lines: list[dict],
+    chapters: list[dict],
+    line_starts: list[float],
+    seconds: float,
+) -> dict:
+    """A book's front matter in text: contents with times, then a section per chapter.
+
+    `text` is the same thing as plain text, so any surface (a page, a download, a
+    screen reader) can show it without laying anything out. `entries` carries it
+    structured for a UI that wants to render the contents as links that seek.
+    """
+    entries = []
+    for i, c in enumerate(chapters):
+        first = c["startLine"]
+        last = (chapters[i + 1]["startLine"] if i + 1 < len(chapters) else len(lines)) - 1
+        span = lines[first : last + 1]
+        entries.append(
+            {
+                "number": i + 1,
+                "title": c["title"],
+                "startSeconds": c["startSeconds"],
+                "timestamp": _stamp(c["startSeconds"]),
+                "summary": (c.get("summary") or "").strip(),
+                "lines": [first, last],
+                # How many questions this chapter asks the listener to answer aloud.
+                "questions": sum(1 for l in span if l.get("role") == "check"),
+                "pointIds": c.get("pointIds", []),
+            }
+        )
+
+    n = len(entries)
+    head = f"{title}\nA lesson made from your notes on {topic}." if topic else f"{title}\nA lesson made from your notes."
+    meta = f"{_stamp(seconds)} · {n} chapter{'s' if n != 1 else ''}" if n else _stamp(seconds)
+    out = [head, meta]
+    if n:
+        width = max(len(e["title"]) for e in entries)
+        out += ["", "Contents"]
+        out += [f"  {e['number']}. {e['title'].ljust(width)}  {e['timestamp']:>6}" for e in entries]
+        for e in entries:
+            out += ["", f"Chapter {e['number']} · {e['title']} · {e['timestamp']}"]
+            if e["summary"]:
+                out.append(e["summary"])
+            if e["questions"]:
+                out.append(f"Stops to ask you {e['questions']} question{'s' if e['questions'] != 1 else ''}.")
+    return {"title": title, "totalSeconds": round(seconds, 1), "totalTimestamp": _stamp(seconds), "entries": entries, "text": "\n".join(out)}

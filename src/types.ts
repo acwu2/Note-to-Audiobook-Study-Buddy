@@ -102,6 +102,13 @@ export interface Podcast {
    * question from lineStarts[scriptLines[0]].
    */
   lineStarts?: number[];
+  /**
+   * The audiobook as text, to show beneath the player: a contents list with
+   * times, then a section per chapter. `outline.text` is the whole thing as
+   * plain text; `outline.entries` is the same, structured, so each contents row
+   * can seek to its startSeconds. Absent until the podcast is ready.
+   */
+  outline?: Outline;
   /** The same audiobook as .m4b, with its chapters, for audiobook apps. */
   audiobookUrl?: string;
   /** The length that was asked for, when one was. Compare with `seconds`. */
@@ -309,4 +316,31 @@ export interface Answer {
   /** Lines of the lesson (when podcastId was sent) that said it, for replay. May be empty. */
   scriptLines: number[];
   audioUrl: string;
+}
+
+/* ---- The audiobook outline: front matter in text ---- */
+
+export interface OutlineEntry {
+  number: number;
+  title: string;
+  startSeconds: number;
+  /** "1:51", ready to show beside the title. */
+  timestamp: string;
+  /** What the chapter teaches, written as text (symbols as in the notes). May be empty. */
+  summary: string;
+  /** [first, last] script line of the chapter. */
+  lines: [number, number];
+  /** How many questions this chapter stops to ask. */
+  questions: number;
+  /** Review points the chapter teaches, once the student has a review. May be empty. */
+  pointIds: string[];
+}
+
+export interface Outline {
+  title: string;
+  totalSeconds: number;
+  totalTimestamp: string;
+  entries: OutlineEntry[];
+  /** Title, length, contents and a section per chapter, as plain text. */
+  text: string;
 }

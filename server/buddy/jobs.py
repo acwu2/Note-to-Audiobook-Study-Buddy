@@ -126,6 +126,9 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
             # Where each script line begins in the file, so a line a student got
             # wrong can be replayed from exactly that point.
             lineStarts=built.line_starts,
+            outline=audiobook.outline(
+                option["title"], note.get("topic", ""), lines, chapters, built.line_starts, built.seconds
+            ),
             audioUrl=f"/api/podcasts/{podcast_id}/audio.mp3",
             audiobookUrl=f"/api/podcasts/{podcast_id}/audio.m4b",
             **extra,

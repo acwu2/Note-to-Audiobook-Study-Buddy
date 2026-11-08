@@ -115,7 +115,10 @@ Also divide the lesson into chapters the listener can jump between.
   read on the page while the chapter plays. Not a trailer for it — state the
   actual facts, so a student who reads it has learned the thing even with the
   sound off. Use the notes' own terms and numbers. Never "in this chapter we
-  look at…".
+  look at…". The summary is the one part of the lesson that is read and never
+  heard, so write it as text, not speech: symbols, units and numbers exactly as
+  they appear in the notes (25°C, Ka, 10⁻¹⁴, pH = pKa + log([A⁻]/[HA])), never
+  spelled out as "twenty-five degrees" or "K a".
 
 Finally, give the lesson a title: what it covers, at most eight words, in the notes'
 own vocabulary. Name the subject, not the request — "The Krebs cycle, step by step",
