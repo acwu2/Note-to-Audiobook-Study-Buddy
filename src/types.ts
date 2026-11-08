@@ -23,6 +23,11 @@ export interface Note {
   topic: string;
   pages: NotePage[];
   options: PodcastOption[];
+  /**
+   * Three example requests written from these notes, for showing beside the
+   * request box. May be empty — render nothing rather than a placeholder.
+   */
+  suggestions?: string[];
 }
 
 export type PodcastStatus = 'queued' | 'writing' | 'recording' | 'mixing' | 'ready' | 'failed';
@@ -77,6 +82,8 @@ export interface Podcast {
   /** Echo of what the student asked for, when they asked in their own words. */
   requestText?: string;
   seconds?: number;
+  /** The length that was asked for, when one was. Compare with `seconds`. */
+  askedMinutes?: number;
   audioUrl?: string;
   error?: string;
 }

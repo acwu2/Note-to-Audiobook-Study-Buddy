@@ -9,7 +9,7 @@ from enum import Enum
 from pydantic import BaseModel, ValidationError
 
 from . import config, fake
-from .formats import FORMATS, WORDS_PER_MINUTE, PipelineError
+from .formats import FORMATS, WORDS_PER_MINUTE, PipelineError, word_budget
 
 log = logging.getLogger("buddy.llm")
 
@@ -28,6 +28,11 @@ OPTIONS_PROMPT = """These are a student's transcribed notes. Say what they are a
 - quick_recap_title: a short recap of the key facts, at most 8 words.
 - deep_dive_topic: the one sub-topic the notes cover in the most detail, in at most 6 words.
 - deep_dive_title: an episode about only that sub-topic, at most 8 words.
+- suggestions: three things this student could ask for, written as they would type
+  them, at most 14 words each. Make them specific to these notes and different from
+  each other in shape, not just in topic: one asking for a particular sub-topic, one
+  asking to be tested, one asking for a length or a difficulty. Name real things from
+  the notes. No quotation marks, no trailing full stop.
 Use only what the notes say. Ignore anything marked [unclear]. Plain words, no quotation marks.
 
 Notes:
@@ -127,6 +132,7 @@ class Options(BaseModel):
     quick_recap_title: str
     deep_dive_topic: str
     deep_dive_title: str
+    suggestions: list[str] = []
 
 
 class Host(str, Enum):
@@ -268,6 +274,7 @@ def write_script(
     format_id: str | None,
     topic: str | None,
     request: str = "",
+    minutes: float | None = None,
 ) -> tuple[list[Line], list[ChapterPlan], str]:
     """Write the lesson from a preset format, or from the student's own request."""
     if request.strip():
@@ -281,10 +288,11 @@ def write_script(
             "on it. If the notes cannot support part of the request, cover what they do "
             "support and do not invent the rest."
         )
-        minutes = minutes_in(request)
+        minutes = minutes if minutes else minutes_in(request)
     else:
         fmt = FORMATS[format_id]
-        label, minutes = fmt.label, fmt.minutes
+        label = fmt.label
+        minutes = minutes or fmt.minutes
         brief = fmt.brief.format(topic=topic or "the main topic")
 
     if config.FAKE_AI:

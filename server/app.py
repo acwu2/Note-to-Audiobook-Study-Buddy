@@ -74,11 +74,16 @@ def _build_note(note_id: str, files: list[tuple[bytes, str]]) -> dict:
             **({"topic": topic} if topic else {}),
         })
 
+    # Example asks, written from these notes. A blank request box is a hard
+    # start; three concrete examples show what the box will accept.
+    suggestions = [s.strip().rstrip(".") for s in (named.suggestions or []) if s and s.strip()][:3]
+
     note = {
         "noteId": note_id,
         "topic": named.topic.strip(),
         "pages": [{"transcript": t, "unclearCount": t.count("[unclear]")} for t in transcripts],
         "options": options,
+        "suggestions": suggestions,
     }
     store.save_note(note)
     return note
@@ -127,6 +132,7 @@ class PodcastRequest(BaseModel):
     noteId: str
     optionId: str | None = None
     request: str | None = None  # the student's own words; one of optionId | request
+    minutes: float | None = None  # how long they want it; overrides any length in `request`
 
 
 MAX_REQUEST_CHARS = 500
@@ -150,12 +156,26 @@ def create_podcast(req: PodcastRequest) -> dict:
             "title": asked if len(asked) <= 60 else asked[:57].rstrip() + "…",
             "request": asked,
         }
+    elif req.minutes and req.optionId:
+        # A preset at a length they chose is still that preset, just re-timed.
+        base = next((o for o in note["options"] if o["id"] == req.optionId), None)
+        if base is None:
+            raise HTTPException(400, "Pick one of the options shown, or say what you want.")
+        option = dict(base)
     else:
         option = next((o for o in note["options"] if o["id"] == req.optionId), None)
         if option is None:
             raise HTTPException(400, "Pick one of the options shown, or say what you want.")
 
-    podcast_id = store.podcast_id_for(note["noteId"], option["id"], option.get("request", ""))
+    minutes = req.minutes
+    if minutes is not None:
+        if not (0.5 <= minutes <= 20):
+            raise HTTPException(400, "Pick a length between 1 and 20 minutes.")
+        option["minutes"] = minutes
+
+    # The asked-for length is part of what makes a podcast that podcast.
+    cache_note = f"{option.get('request', '')}|{option.get('minutes', '')}"
+    podcast_id = store.podcast_id_for(note["noteId"], option["id"], cache_note)
     jobs.start(podcast_id, note, option)
     return {"id": podcast_id}
 

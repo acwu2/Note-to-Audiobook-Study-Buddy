@@ -59,6 +59,7 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
                 option["id"],
                 option.get("topic"),
                 request=option.get("request", ""),
+                minutes=option.get("minutes"),
             )
             # A custom episode has only the student's request to go on until the
             # lesson exists. Once it does, name it after what it actually covers.
@@ -95,12 +96,21 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
             for c in plan_json
             if 0 <= c["startLine"] < len(rendered.line_starts)
         ]
+        extra = {}
+        asked = option.get("minutes") or (
+            llm.minutes_in(option["request"]) if option.get("request") else None
+        )
+        if asked:
+            # Say what was asked for next to what was made. A length request the
+            # file misses by a mile should be visible, not quietly absorbed.
+            extra["askedMinutes"] = round(float(asked), 2)
         set_state(
             "ready",
             script=lines,
             chapters=chapters,
             seconds=rendered.seconds,
             audioUrl=f"/api/podcasts/{podcast_id}/audio.mp3",
+            **extra,
         )
     except PipelineError as e:
         set_state("failed", error=str(e))

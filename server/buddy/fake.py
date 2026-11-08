@@ -27,6 +27,11 @@ OPTIONS = {
     "quick_recap_title": "The three stages in three minutes",
     "deep_dive_topic": "The Krebs cycle",
     "deep_dive_title": "The Krebs cycle, explained simply",
+    "suggestions": [
+        "explain the Krebs cycle like I have never seen it",
+        "quiz me on the three stages until I get them right",
+        "a five minute version I can listen to on the walk in",
+    ],
 }
 
 SCRIPTS = {
