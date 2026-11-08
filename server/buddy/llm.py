@@ -36,7 +36,18 @@ Notes:
 SCRIPT_PROMPT = """Write a two-host audio lesson from a student's notes.
 Hosts: Heart and Michael. They take turns, and Heart speaks first.
 Lesson: {label}. {brief}
-Length: at most {words} words in total. Shorter is fine when the notes are short. Never pad.
+Length: about {words} words in total, and never fewer than {floor}. That is the length
+the student asked for, so it is a target to hit, not a ceiling to stay under. Expect
+roughly {lines_hint} lines.
+
+Short notes do not mean a short lesson. They mean teaching the same material more
+thoroughly: build each idea up in smaller steps, work through an example, say why a
+fact matters, and check understanding more often. A page of notes that takes thirty
+seconds to read aloud is still a full lesson's worth of teaching.
+
+Padding means repeating yourself, restating the same idea in new words, or filling
+with waffle, and that is never allowed. Teaching the notes properly for the full
+length is not padding.
 
 This is a lesson someone studies from, not an episode they listen to. The test is
 whether a student knows the material better at the end than at the start. Reading
@@ -67,8 +78,11 @@ Be strict about this; it is the whole promise of the product.
   use without explaining.
 
 Rules:
-- Prefer "notes" lines. Add only what a student genuinely needs in order to understand
-  the notes. This is not an invitation to pad with background.
+- Prefer "notes" lines: the student's own material leads, and every fact in the notes
+  gets taught. Use "added" lines for what a student genuinely needs in order to follow
+  them — an analogy, a worked example, why a fact matters, a term the notes use without
+  explaining. Reaching the target length by teaching the notes more carefully is right;
+  reaching it with background the student did not need is not.
 - Never let an unsourced fact sit inside a "notes" line. If a line would mix the two,
   split it into one of each.
 - Everything in an "added" line must be true and must never contradict the notes.
@@ -244,6 +258,11 @@ def minutes_in(request: str, default: int = 5) -> int:
     return max(1, min(20, int(m.group(1))))
 
 
+def _word_count(lines: list[Line]) -> int:
+    """Spoken words in a script — what decides how long the audio actually runs."""
+    return sum(len(line.text.split()) for line in lines)
+
+
 def write_script(
     transcripts: list[str],
     format_id: str | None,
@@ -269,20 +288,49 @@ def write_script(
         brief = fmt.brief.format(topic=topic or "the main topic")
 
     if config.FAKE_AI:
+        # A custom request has no canned script, so it plays the full episode.
+        # Title it after what is actually spoken rather than echoing the request
+        # back — otherwise fake mode shows a title the audio does not match.
         key = format_id if format_id in fake.SCRIPTS else "full_episode"
         lines = _repair_arc([Line(**line) for line in fake.SCRIPTS[key]])
-        return lines, _fake_chapters(lines), ""
+        return lines, _fake_chapters(lines), fake.OPTIONS.get(f"{key}_title", "")
 
+    target = minutes * WORDS_PER_MINUTE
     prompt = SCRIPT_PROMPT.format(
         label=label,
         brief=brief,
-        words=minutes * WORDS_PER_MINUTE,
+        words=target,
+        floor=int(target * 0.8),
+        lines_hint=max(8, round(target / 35)),
         notes=_notes_block(transcripts),
     )
     script = _generate(prompt, Script)
     lines = [line for line in script.lines if line.text.strip()][:200]
     if not lines:
         raise PipelineError("The AI wrote an empty script. Try a clearer photo.")
+
+    # Models undershoot a length target badly on short notes, and a "five minute
+    # lesson" that runs fifteen seconds is the one failure a student notices
+    # immediately. Ask once for the full length before giving up on it.
+    spoken = _word_count(lines)
+    if spoken < target * 0.6:
+        log.info("script came back at %d words against a %d target; expanding", spoken, target)
+        longer = (
+            f"{prompt}\n\nAn earlier attempt came back at only {spoken} words. That is far "
+            f"too short for the {minutes} minute lesson the student asked for. Write it "
+            f"again at the full {target} words: keep everything you had, then teach each "
+            "idea in more steps, work through examples, and add more checks with their "
+            "answers. Do not repeat yourself, and do not invent facts about the subject — "
+            "go deeper on what the notes already say."
+        )
+        try:
+            retry = _generate(longer, Script)
+            retry_lines = [line for line in retry.lines if line.text.strip()][:200]
+            if _word_count(retry_lines) > spoken:
+                script, lines = retry, retry_lines
+        except PipelineError:
+            pass  # a short lesson beats a failed one
+
     lines = _repair_arc(lines)
     title = re.sub(r"\s+", " ", script.title or "").strip()[:80]
     return lines, _clean_chapters(script.chapters, lines), title
