@@ -266,3 +266,38 @@ export interface Marks {
   /** Empty on a perfect score — there is nothing to reinforce. */
   cards: ReviewCard[];
 }
+
+/* ---- Ask: a free question, answered from the notes by the podcast's hosts ----
+ *
+ * POST /api/ask  { noteId, question, podcastId? }  -> Answer
+ * GET  audioUrl  -> the answer spoken by Heart and Michael, the same voices as
+ *                   the lesson. Rendered on first request (a few seconds, then cached).
+ */
+
+export interface AskLine {
+  host: 'Heart' | 'Michael';
+  text: string;
+}
+
+export interface Answer {
+  answerId: string;
+  noteId: string;
+  question: string;
+  /** Two to four lines, Heart first. Show as a short exchange; the audio is this. */
+  lines: AskLine[];
+  /** The lines joined, for anything that wants plain text. */
+  answer: string;
+  /**
+   * False means the notes do not contain the answer and the hosts said so.
+   * Style that differently from an answer; it is the product working, not failing.
+   */
+  found: boolean;
+  /**
+   * An exact phrase from the student's notes that supports the answer. Verified
+   * against the notes on the server; empty rather than unverified.
+   */
+  quote: string;
+  /** Lines of the lesson (when podcastId was sent) that said it, for replay. May be empty. */
+  scriptLines: number[];
+  audioUrl: string;
+}
