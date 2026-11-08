@@ -381,6 +381,18 @@ def write_script(
 
     # How many words fill the finished file, pauses included — see formats.word_budget.
     target = word_budget(minutes, config.THINK_SECONDS, config.TURN_SECONDS)
+
+    # A long lesson is written a chapter at a time. One call asked for a long script
+    # returns about half of it (962 words asked, 552 written; 1906 asked, 723 written),
+    # and wording the prompt harder did not move it. See chaptered.py.
+    from . import chaptered  # lazy: chaptered imports this module
+
+    if target >= chaptered.MIN_TARGET_WORDS:
+        built = chaptered.write(transcripts, label, brief, target)
+        if built:
+            chaptered_lines, chaptered_plan, chaptered_title = built
+            chaptered_lines = _repair_arc(chaptered_lines)
+            return chaptered_lines, _clean_chapters(chaptered_plan, chaptered_lines), chaptered_title
     prompt = SCRIPT_PROMPT.format(
         label=label,
         brief=brief,

@@ -60,11 +60,12 @@ FORMAT_ORDER = ["full_episode", "quick_recap", "deep_dive"]
 # Host name → Kokoro voice id. Both are American English (lang_code "a").
 HOSTS: dict[str, str] = {"Heart": "af_heart", "Michael": "am_michael"}
 
-# Measured from Kokoro on two REAL generated lessons (404 words/168.7s and
-# 676 words/274.1s of speech): 144 and 148 wpm. An earlier figure of 184 came from
-# short canned fixture lines and would have made every real lesson run long.
-# Speaking rate only — it says nothing about pauses.
-SPEAKING_WPM = 146
+# Measured from Kokoro on four REAL generated lessons: 144, 148, 159 and 164 wpm,
+# mean 154. The rate depends on the text (numbers, sentence length), so it varies by
+# about +/-7% from lesson to lesson and no single figure removes that. An earlier 184
+# came from short canned fixture lines, and 146 from only the first two real lessons.
+# Speaking rate only: it says nothing about pauses.
+SPEAKING_WPM = 154
 
 # Typical seconds of speech in one line, used to guess how many lines a budget
 # buys, and so how many gaps there will be. Real lessons: 9.9s and 10.2s.
