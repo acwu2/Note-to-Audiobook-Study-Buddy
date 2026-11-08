@@ -205,13 +205,22 @@ export interface Deck {
 
 /* ---- Study loop: read a review, take the quiz, drill what you missed ----
  *
- * Named Review* throughout: a separate session added a Quiz/Attempt/Deck loop
- * built on the finished lesson. Same words, different products, and sharing a
- * name would silently merge the two shapes.
+ * What the server really serves (read from app.py, not from memory):
  *
- * These three are one loop, not three features. `pointId` is the thread: every
- * quiz question names the review point it tests, and a flashcard is only ever
- * made from a point this student actually got wrong.
+ *   POST /api/reviews  { noteId, podcastId? }
+ *        -> { reviewId, noteId, podcastId?, title, points: ReviewPoint[],
+ *             quiz: { id, podcastId, questions: [{ id, q, options }] } }
+ *      The quiz carries NO answers: they stay on the server until the attempt.
+ *
+ *   POST /api/reviews/{reviewId}/attempt  { reviewId, answers: { [questionId]: optionIndex } }
+ *        -> an Attempt (above) plus { deck: Deck } and, per gap, scriptLines.
+ *
+ * Those two response shapes are declared in lib/api.ts as ReviewDoc and
+ * AttemptResult, next to the calls that return them, so they cannot drift from
+ * the code. An earlier version of this section declared Review, ReviewQuestion,
+ * ReviewResult, ReviewCard and Marks for a /marks route that was merged away;
+ * nothing served them, tsc stayed green over them, and they cost a build cycle.
+ * Only the point shape is shared across files, so only it lives here.
  */
 
 export interface ReviewPoint {
@@ -227,60 +236,6 @@ export interface ReviewPoint {
    * stretch a missed point came from. Empty when there is nothing to replay.
    */
   lineRefs?: number[];
-}
-
-export interface ReviewQuestion {
-  /** The review point this tests. Always matches a ReviewPoint.id. */
-  pointId: string;
-  q: string;
-  /** Exactly four, all distinct. */
-  options: string[];
-  /** Index into options. Present so the UI can mark without a round trip. */
-  answer: number;
-  why: string;
-}
-
-export interface Review {
-  reviewId: string;
-  noteId: string;
-  /** Set when the review follows a lesson; what lineRefs point into. */
-  podcastId?: string;
-  title: string;
-  points: ReviewPoint[];
-  /** Written with the review and stored beside it, so the two cannot drift. */
-  questions: ReviewQuestion[];
-}
-
-export interface ReviewResult {
-  pointId: string;
-  q: string;
-  options: string[];
-  /** What the student picked, or null if they left it blank. */
-  chosen: number | null;
-  /** Blank is not the same as guessing wrong — show them differently. */
-  skipped: boolean;
-  correct: boolean;
-  answer: number;
-  why: string;
-}
-
-export interface ReviewCard {
-  /** The missed point this drills. */
-  pointId: string;
-  front: string;
-  back: string;
-  /** Names the wrong option they actually picked, when there was one. */
-  because?: string;
-}
-
-export interface Marks {
-  reviewId: string;
-  score: number;
-  total: number;
-  results: ReviewResult[];
-  missedPointIds: string[];
-  /** Empty on a perfect score — there is nothing to reinforce. */
-  cards: ReviewCard[];
 }
 
 /* ---- Ask: a free question, answered from the notes by the podcast's hosts ----
