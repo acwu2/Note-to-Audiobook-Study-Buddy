@@ -55,6 +55,43 @@ def _silence(seconds: float) -> np.ndarray:
     return np.zeros(int(config.SAMPLE_RATE * seconds), dtype=np.float32)
 
 
+def _trim(a: np.ndarray) -> np.ndarray:
+    """Strip the dead air Kokoro leaves at both ends of a line.
+
+    It returns roughly 0.3s before the first word and 0.5s after the last. Stack
+    that on a gap of our own and every turn sits in about 1.2 seconds of silence,
+    which is what makes an alternating script sound stitched together rather than
+    spoken. Trim it off and the gap between lines becomes ours to choose.
+    """
+    loud = np.where(np.abs(a) > config.TRIM_THRESHOLD)[0]
+    if len(loud) == 0:
+        return a
+    keep = int(config.SAMPLE_RATE * config.TRIM_KEEP_SECONDS)
+    start = max(0, int(loud[0]) - keep)
+    end = min(len(a), int(loud[-1]) + keep)
+    return a[start:end]
+
+
+def _gap_after(role: str, nxt: tuple | None, host: str) -> float:
+    """How long to wait before the next line. Pacing is most of what sells a voice.
+
+    A question gets a real pause to answer in. A new section gets a beat. Two
+    lines from the same host run on, the way a person finishing a thought does.
+    Everything else gets a natural turn-taking gap.
+    """
+    if role == "check":
+        return config.THINK_SECONDS
+    if nxt is None:
+        return config.TAIL_SECONDS
+    next_host = nxt[0]
+    next_role = nxt[2] if len(nxt) > 2 else "teach"
+    if next_role in ("hook", "recap"):
+        return config.SECTION_SECONDS
+    if next_host == host:
+        return config.SAME_HOST_SECONDS
+    return config.TURN_SECONDS
+
+
 @dataclass(frozen=True)
 class Render:
     seconds: float
@@ -77,17 +114,16 @@ def render(
     """
     if not shutil.which("ffmpeg"):
         raise PipelineError("The server needs ffmpeg to make MP3s. Install it with: brew install ffmpeg")
-    pause = _silence(config.PAUSE_SECONDS)
-    think = _silence(config.THINK_SECONDS)
     chunks: list[np.ndarray] = []
     line_starts: list[float] = []
     samples = 0
-    for line in lines:
+    for i, line in enumerate(lines):
         host, text = line[0], line[1]
         role = line[2] if len(line) > 2 else "teach"
         line_starts.append(round(samples / config.SAMPLE_RATE, 2))
-        spoken = speak_line(text, HOSTS[host])
-        gap = think if role == "check" else pause
+        spoken = _trim(speak_line(text, HOSTS[host]))
+        nxt = lines[i + 1] if i + 1 < len(lines) else None
+        gap = _silence(_gap_after(role, nxt, host))
         chunks.append(spoken)
         chunks.append(gap)
         samples += len(spoken) + len(gap)
