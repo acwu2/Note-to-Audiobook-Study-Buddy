@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study Buddy</title>
+  <style>
+    body { font: 18px/1.5 system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; background: #fafafa; color: #111; }
+    h1 { margin-bottom: 0.2em; }
+    section { background: #fff; border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 16px 0; }
+    label { display: block; font-weight: 600; margin-bottom: 8px; }
+    button { font-size: 18px; padding: 12px 20px; border-radius: 8px; border: 0; background: #1f4fd1; color: #fff; cursor: pointer; margin: 8px 8px 0 0; }
+    button:disabled { background: #888; }
+    input[type=text] { width: 100%; box-sizing: border-box; font-size: 18px; padding: 10px; }
+    pre { white-space: pre-wrap; font-family: inherit; background: #f3f3f3; padding: 12px; border-radius: 8px; }
+    audio { width: 100%; margin-top: 8px; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Study Buddy</h1>
+  <p>Turn a photo of a handwritten note into an audiobook, then ask it questions.</p>
+
+  <section>
+    <form id="noteForm">
+      <label for="photo">1. Choose a photo of your note</label>
+      <input id="photo" name="photo" type="file" accept="image/*" required>
+      <button id="noteBtn" type="submit">Make audiobook</button>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section id="result" hidden>
+    <label>2. Listen</label>
+    <audio id="noteAudio" controls></audio>
+    <details><summary>What the AI read (check it!)</summary><pre id="text"></pre></details>
+  </section>
+
+  <section id="askBox" hidden>
+    <form id="askForm">
+      <label for="question">3. Ask about your note</label>
+      <input id="question" type="text" placeholder="Explain the second point like I am new to it.">
+      <button type="submit">Ask</button>
+      <button type="button" id="quizBtn">Quiz me</button>
+    </form>
+    <pre id="answer" hidden></pre>
+    <audio id="answerAudio" controls hidden></audio>
+  </section>
+
+<script>
+  let noteText = "";
+  const $ = (id) => document.getElementById(id);
+  const status = (msg) => { $("status").textContent = msg; };
+
+  $("noteForm").onsubmit = async (e) => {
+    e.preventDefault();
+    $("noteBtn").disabled = true;
+    status("Reading your note and recording it… this can take a minute.");
+    try {
+      const res = await fetch("/api/note", { method: "POST", body: new FormData(e.target) });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      noteText = data.text;
+      $("text").textContent = data.text;
+      $("noteAudio").src = data.audio;
+      $("result").hidden = $("askBox").hidden = false;
+      status("Done! Press play.");
+    } catch (err) {
+      status("Something went wrong: " + err.message.slice(0, 200));
+    } finally {
+      $("noteBtn").disabled = false;
+    }
+  };
+
+  async function ask(body) {
+    $("answer").hidden = false;
+    $("answer").textContent = "Thinking…";
+    const res = await fetch("/api/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: noteText, ...body }),
+    });
+    const data = await res.json();
+    $("answer").textContent = data.answer;
+    $("answerAudio").src = data.audio;
+    $("answerAudio").hidden = false;
+    $("answerAudio").play();
+  }
+
+  $("askForm").onsubmit = (e) => { e.preventDefault(); ask({ question: $("question").value }); };
+  $("quizBtn").onclick = () => ask({ quiz: true });
+</script>
+</body>
+</html>

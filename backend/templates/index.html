@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Buddy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='studybuddy.css') }}">
+</head>
+<body>
+<div class="app">
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H2z"/><path d="M22 5h-7a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h8z"/></svg></span><span class="brand-name">Study Buddy</span>
+  </div><span class="topbar-divider" aria-hidden="true"></span>
+  <h1 class="topbar-title" id="notebookTitle">My notes</h1>
+  <button type="button" class="btn btn-outline" id="shareBtn">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Share</button>
+</header>
+
+<nav class="mobile-tabs" aria-label="Sections">
+  <button type="button" data-tab="sources" aria-pressed="false">Sources</button>
+  <button type="button" data-tab="chat" aria-pressed="true" class="is-active">Chat</button>
+  <button type="button" data-tab="studio" aria-pressed="false">Studio</button>
+</nav>
+
+<main class="panels" id="panels" data-mobile-tab="chat">
+  <!-- SOURCES -->
+  <section class="panel panel-sources" aria-label="Sources">
+    <div id="sourcesList" style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div class="panel-head"><h2>Sources</h2><span class="muted" id="sourceCount">0 pages</span></div>
+      <div class="dropzone-wrap">
+        <button type="button" class="dropzone" id="dropzone">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="accent"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <strong>Add a photo of your notes</strong><span class="muted">Drop images here, or snap one with your phone</span>
+        </button>
+        <input type="file" id="fileInput" accept="image/*" multiple hidden>
+      </div>
+      <label class="toggle-all">Use all sources in answers<input type="checkbox" id="toggleAll" checked></label>
+      <ul class="source-list" id="sourceList"></ul>
+    </div>
+    <div id="sourceDetail" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div class="panel-head panel-head-back">
+        <button type="button" class="icon-btn" id="detailBack" aria-label="Back to sources">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h2 id="detailName" class="truncate">Source</h2>
+      </div>
+      <div class="segmented" role="group" aria-label="View">
+        <button type="button" data-view="text" class="is-active" aria-pressed="true">What it read</button>
+        <button type="button" data-view="spoken" aria-pressed="false">For the ear</button>
+        <button type="button" data-view="photo" aria-pressed="false">Photo</button>
+      </div>
+      <p class="tab-hint" id="detailHint">Check this against your page. Words the AI could not read are marked [unclear].</p>
+      <div class="panel-body">
+        <div class="paper" id="detailPaper"><p id="detailText"></p></div>
+        <img class="photo" id="detailPhoto" alt="" hidden>
+        <div class="callout" id="detailCallout" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <section class="panel panel-chat" aria-label="Ask your notes">
+    <div class="panel-head">
+      <h2>Ask your notes</h2><span class="muted with-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Answers come only from your notes</span>
+    </div>
+    <div class="chat-scroll" id="chatScroll">
+      <div class="chat-column" id="chatColumn">
+        <div class="guide">
+          <div class="eyebrow">Notebook guide</div>
+          <h3 class="display" id="guideTitle">Start with a photo</h3>
+          <p class="guide-summary" id="guideSummary">Add a photo of a handwritten page. Study Buddy reads it, turns it into an audiobook, and answers questions using only what is on your page.</p>
+          <div class="row-wrap">
+            <button type="button" class="btn btn-dark" id="guideListen" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="accent-bright"><path d="M7 4l13 8-13 8z"/></svg>Listen to the audiobook</button>
+            <button type="button" class="btn btn-outline" id="guideAdd">Add a photo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="composer-wrap">
+      <div class="chat-column">
+        <div class="suggestions">
+          <button type="button" class="pill" data-quiz="1">Quiz me with three questions</button>
+          <button type="button" class="pill" data-q="Which words did you mark as [unclear], and where are they?">What did I mark as unclear?</button>
+          <button type="button" class="pill" data-q="Summarize my notes so I can hear them in one minute.">Summarize in one minute</button>
+        </div>
+        <form class="composer" id="composer">
+          <label for="ask" class="sr-only">Ask a question about your notes</label>
+          <textarea id="ask" rows="1" placeholder="Ask anything about your notes…"></textarea><span class="muted small nowrap" id="composerCount">0 sources</span>
+          <button type="button" class="round-btn round-btn-outline" id="micBtn" aria-label="Ask by voice">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>
+          </button>
+          <button type="submit" class="round-btn round-btn-dark" id="sendBtn" aria-label="Send question">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- STUDIO -->
+  <section class="panel panel-studio" aria-label="Studio">
+    <div class="panel-head"><h2>Studio</h2></div>
+    <div class="panel-body studio-body">
+      <div class="player">
+        <div class="player-head"><span class="player-art" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg></span>
+          <div>
+            <div class="eyebrow eyebrow-bright">Audiobook</div>
+            <div class="player-title" id="playerTitle">No audiobook yet</div>
+            <div class="player-sub" id="playerSub">Add a photo to make one</div>
+          </div>
+        </div>
+        <div>
+          <div class="progress" role="progressbar" aria-label="Playback position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress">
+            <div class="progress-fill" id="progressFill" style="width:0%"></div>
+          </div>
+          <div class="progress-times"><span id="timeNow">0:00</span><span id="timeTotal">0:00</span></div>
+        </div>
+        <div class="transport">
+          <button type="button" class="icon-btn icon-btn-light" id="back15" aria-label="Back 15 seconds">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+          <button type="button" class="play-btn" id="playBtn" aria-label="Play audiobook" disabled>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" id="playIcon"><path d="M7 4l13 8-13 8z"/></svg>
+          </button>
+          <button type="button" class="icon-btn icon-btn-light" id="fwd15" aria-label="Forward 15 seconds">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          </button>
+        </div>
+        <div class="speeds" role="group" aria-label="Playback speed" id="speeds">
+          <button type="button" data-rate="0.75" aria-pressed="false">0.75×</button>
+          <button type="button" data-rate="1" aria-pressed="true" class="is-active">1×</button>
+          <button type="button" data-rate="1.25" aria-pressed="false">1.25×</button>
+          <button type="button" data-rate="1.5" aria-pressed="false">1.5×</button>
+        </div>
+        <label class="voice">Voice<select id="voice">
+          <option value="af_heart">Heart · American English</option>
+          <option value="af_bella">Bella · American English</option>
+          <option value="am_michael">Michael · American English</option>
+          <option value="bf_emma">Emma · British English</option>
+        </select></label>
+        <div class="player-status" id="playerStatus" role="status" aria-live="polite"></div>
+        <div class="row">
+          <a class="btn btn-light grow" id="downloadBtn" download="study-buddy-audiobook.mp3" aria-disabled="true" style="text-decoration:none;pointer-events:none;opacity:.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Download MP3</a>
+          <button type="button" class="round-btn round-btn-ghost-light" id="regenBtn" aria-label="Regenerate audiobook" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></svg>
+          </button>
+        </div>
+        <audio id="audio" preload="metadata"></audio>
+      </div>
+
+      <div>
+        <h3 class="section-label">Study tools</h3>
+        <div class="tool-grid">
+          <button type="button" class="tool" data-quiz="1"><strong>Quiz me</strong><span class="muted small">Three questions from your notes</span></button>
+          <button type="button" class="tool" data-q="Make flashcards of the key terms in my notes. One per line, as: term — definition."><strong>Flashcards</strong><span class="muted small">Key terms, front and back</span></button>
+          <button type="button" class="tool" data-q="Write a one-page study guide from my notes, with short headed sections."><strong>Study guide</strong><span class="muted small">One page to revise from</span></button>
+          <button type="button" class="tool" data-q="Explain each point in my notes simply, like I am new to the topic."><strong>Explain simply</strong><span class="muted small">Each point, like you are new to it</span></button>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="section-label">Saved notes</h3>
+        <div class="saved-list" id="savedList"></div>
+        <form class="note-form" id="noteForm" hidden>
+          <label for="noteText" class="sr-only">Note text</label>
+          <textarea id="noteText" placeholder="Write a note…"></textarea>
+          <div class="row"><button type="button" class="btn btn-outline grow" id="noteCancel">Cancel</button><button type="submit" class="btn btn-dark grow">Save</button></div>
+        </form>
+        <button type="button" class="btn btn-outline full" id="addNoteBtn">Add note</button>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+"""Study Buddy: handwritten note -> text -> spoken text -> audiobook -> Q&A.
+
+The four workshop steps, each usable on its own:
+    read_note(path)          Step 1: vision model transcribes the handwriting
+    prepare_for_ear(text)    Step 2: rewrite symbols/shorthand so it sounds right
+    speak(text, out_mp3)     Step 3: Kokoro text-to-speech -> MP3
+    ask(note_text, question) Step 4: answer questions grounded in the note
+
+CLI:
+    python study_buddy.py note.jpg                 # transcribe + make note.mp3
+    python study_buddy.py note.jpg --ask "..."     # also answer a question aloud
+"""
+
+import argparse
+import os
+import subprocess
+import time
+from pathlib import Path
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import errors
+
+load_dotenv()  # picks up GEMINI_API_KEY from .env
+
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+VOICE = "af_heart"
+SAMPLE_RATE = 24000
+
+_client = None
+_tts = None
+
+
+def client():
+    global _client
+    if _client is None:
+        _client = genai.Client()  # reads GEMINI_API_KEY
+    return _client
+
+
+def generate(contents, retries=5):
+    """Call Gemini, waiting and retrying when it is busy (never hammer).
+
+    Retries on 429 (free-tier rate limit) and 5xx (e.g. 503 "model is experiencing high demand").
+    If GEMINI_FALLBACK_MODEL is set, the last attempt uses that model instead.
+    """
+    delay = 5
+    fallback = os.environ.get("GEMINI_FALLBACK_MODEL")
+    for attempt in range(retries):
+        last = attempt == retries - 1
+        model = fallback if (last and fallback) else MODEL
+        try:
+            return client().models.generate_content(model=model, contents=contents).text
+        except errors.APIError as e:
+            busy = e.code == 429 or (e.code or 0) >= 500
+            if not busy or last:
+                raise
+            print(f"Gemini busy ({e.code}), waiting {delay}s...")
+            time.sleep(delay)
+            delay = min(delay * 2, 40)
+
+
+# Step 1 · Read
+def read_note(image_path):
+    note = client().files.upload(file=str(image_path))
+    ask = (
+        "Transcribe this handwritten note exactly, in reading order. "
+        "Plain text only: no markdown, no commentary. "
+        "Never guess: mark any word you cannot read as [unclear]."
+    )
+    return generate([note, ask])
+
+
+# Step 2 · Prepare
+def prepare_for_ear(text):
+    ask = (
+        "Rewrite this so it sounds natural read aloud. Spell out symbols and "
+        "abbreviations (e.g. '1st' -> 'first', 'A→B' -> 'A leads to B', "
+        "'~50%' -> 'about fifty percent'). Keep every fact. Plain text only.\n\n"
+    )
+    return generate(ask + text)
+
+
+# Step 3 · Speak
+def speak(text, out_mp3, voice=VOICE):
+    global _tts
+    import numpy as np
+    import soundfile as sf
+    from kokoro import KPipeline
+
+    if _tts is None:
+        _tts = {}
+    lang = voice[0]  # Kokoro voice ids start with their language: "a" = American, "b" = British English
+    if lang not in _tts:
+        _tts[lang] = KPipeline(lang_code=lang)
+    parts = [audio for _, _, audio in _tts[lang](text, voice=voice)]
+    out_mp3 = Path(out_mp3)
+    wav = out_mp3.with_suffix(".wav")
+    sf.write(wav, np.concatenate(parts), SAMPLE_RATE)
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(wav), "-b:a", "96k", str(out_mp3)],
+        check=True,
+    )
+    wav.unlink()
+    return out_mp3
+
+
+# Step 4 · Ask
+def ask(note_text, question):
+    rules = "Answer only from this note. If it is not in the note, say so. Plain text only."
+    return generate([rules, note_text, question])
+
+
+def quiz(note_text):
+    return ask(note_text, "Ask me three questions about this note to help me revise.")
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("image", type=Path, help="photo of a handwritten note")
+    p.add_argument("--ask", help="a question to answer from the note")
+    args = p.parse_args()
+
+    text = read_note(args.image)
+    print("--- Transcription (check the first lines yourself!) ---\n" + text)
+
+    spoken = prepare_for_ear(text)
+    print("\n--- Prepared for the ear ---\n" + spoken)
+
+    mp3 = speak(spoken, args.image.with_suffix(".mp3"))
+    print(f"\nAudiobook saved: {mp3}")
+
+    if args.ask:
+        answer = ask(text, args.ask)
+        print("\n--- Answer ---\n" + answer)
+        print(f"Answer audio: {speak(answer, args.image.with_name(args.image.stem + '_answer.mp3'))}")
+
+
+if __name__ == "__main__":
+    main()
