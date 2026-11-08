@@ -176,6 +176,10 @@ export interface Deck {
 
 /* ---- Study loop: read a review, take the quiz, drill what you missed ----
  *
+ * Named Review* throughout: a separate session added a Quiz/Attempt/Deck loop
+ * built on the finished lesson. Same words, different products, and sharing a
+ * name would silently merge the two shapes.
+ *
  * These three are one loop, not three features. `pointId` is the thread: every
  * quiz question names the review point it tests, and a flashcard is only ever
  * made from a point this student actually got wrong.
@@ -190,7 +194,7 @@ export interface ReviewPoint {
   exam: boolean;
 }
 
-export interface QuizQuestion {
+export interface ReviewQuestion {
   /** The review point this tests. Always matches a ReviewPoint.id. */
   pointId: string;
   q: string;
@@ -207,10 +211,10 @@ export interface Review {
   title: string;
   points: ReviewPoint[];
   /** Written with the review and stored beside it, so the two cannot drift. */
-  questions: QuizQuestion[];
+  questions: ReviewQuestion[];
 }
 
-export interface QuizResult {
+export interface ReviewResult {
   pointId: string;
   /** What the student picked, or null if they skipped it. */
   picked: number | null;
@@ -219,7 +223,7 @@ export interface QuizResult {
   why: string;
 }
 
-export interface Flashcard {
+export interface ReviewCard {
   /** The missed point this drills. */
   pointId: string;
   front: string;
@@ -230,8 +234,8 @@ export interface Marks {
   reviewId: string;
   score: number;
   total: number;
-  results: QuizResult[];
+  results: ReviewResult[];
   missedPointIds: string[];
   /** Empty on a perfect score — there is nothing to reinforce. */
-  cards: Flashcard[];
+  cards: ReviewCard[];
 }
