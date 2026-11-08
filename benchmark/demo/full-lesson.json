@@ -1,0 +1,76 @@
+{
+  "script": [
+    {
+      "host": "Heart",
+      "text": "Cellular respiration is how your cells get usable energy out of food. Everything else in these notes hangs off that one job.",
+      "source": "added",
+      "role": "hook"
+    },
+    {
+      "host": "Michael",
+      "text": "Your notes split it into three stages. The first is glycolysis, in the cytoplasm.",
+      "source": "notes",
+      "role": "teach"
+    },
+    {
+      "host": "Heart",
+      "text": "The second is the Krebs cycle, in the mitochondria. The third is the electron transport chain.",
+      "source": "notes",
+      "role": "teach"
+    },
+    {
+      "host": "Michael",
+      "text": "So before we go on: which of the three stages happens in the cytoplasm?",
+      "source": "notes",
+      "role": "check"
+    },
+    {
+      "host": "Heart",
+      "text": "Glycolysis. That is the only one outside the mitochondria, which is worth hanging on to.",
+      "source": "notes",
+      "role": "answer"
+    },
+    {
+      "host": "Michael",
+      "text": "The last stage makes most of the A T P. About thirty-four, according to your notes.",
+      "source": "notes",
+      "role": "teach"
+    },
+    {
+      "host": "Heart",
+      "text": "And where does most of that A T P come from?",
+      "source": "notes",
+      "role": "check"
+    },
+    {
+      "host": "Michael",
+      "text": "The electron transport chain, the third stage. Thirty-four of them.",
+      "source": "notes",
+      "role": "answer"
+    },
+    {
+      "host": "Heart",
+      "text": "Three stages, in order: glycolysis, the Krebs cycle, the electron transport chain, with the energy stacked at the end.",
+      "source": "notes",
+      "role": "recap"
+    }
+  ],
+  "chapters": [
+    {
+      "title": "Where this fits",
+      "startLine": 0,
+      "startSeconds": 0.0
+    },
+    {
+      "title": "Check 1",
+      "startLine": 3,
+      "startSeconds": 22.12
+    },
+    {
+      "title": "Check 2",
+      "startLine": 6,
+      "startSeconds": 43.83
+    }
+  ],
+  "seconds": 64.2
+}

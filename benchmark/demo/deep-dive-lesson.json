@@ -1,0 +1,62 @@
+[
+  {
+    "host": "Heart",
+    "text": "The Krebs cycle is the step people lose marks on, because it is the middle of a chain and easy to isolate.",
+    "source": "added",
+    "role": "hook"
+  },
+  {
+    "host": "Michael",
+    "text": "Your notes also call it the citric acid cycle. Same thing, two names.",
+    "source": "notes",
+    "role": "teach"
+  },
+  {
+    "host": "Heart",
+    "text": "Worth knowing, though your notes do not say it: it runs inside the mitochondria.",
+    "source": "added",
+    "role": "teach"
+  },
+  {
+    "host": "Michael",
+    "text": "It runs twice for every glucose.",
+    "source": "notes",
+    "role": "teach"
+  },
+  {
+    "host": "Heart",
+    "text": "Why twice, do you think, rather than once?",
+    "source": "notes",
+    "role": "check"
+  },
+  {
+    "host": "Michael",
+    "text": "Because one glucose is split in two earlier on, so each half goes round. Your notes give the number; the reason is the useful part.",
+    "source": "added",
+    "role": "answer"
+  },
+  {
+    "host": "Heart",
+    "text": "It makes N A D H and F A D H 2, and those feed the electron transport chain.",
+    "source": "notes",
+    "role": "teach"
+  },
+  {
+    "host": "Michael",
+    "text": "So what does the Krebs cycle hand on, and to what?",
+    "source": "notes",
+    "role": "check"
+  },
+  {
+    "host": "Heart",
+    "text": "N A D H and F A D H 2, handed to the electron transport chain.",
+    "source": "notes",
+    "role": "answer"
+  },
+  {
+    "host": "Michael",
+    "text": "Two names, twice per glucose, and it feeds the next stage. That is the whole of it.",
+    "source": "notes",
+    "role": "recap"
+  }
+]
