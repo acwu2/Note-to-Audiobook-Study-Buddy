@@ -80,6 +80,17 @@ CHECKS_PER_MINUTE = 1.0
 WORDS_PER_MINUTE = 150
 
 
+def front_matter_seconds(minutes: float) -> float:
+    """Time the opening, contents, chapter announcements and ending take.
+
+    Measured on a real 4-chapter lesson: 37s (18.7s before the first line of
+    content, the rest in announcements and the ending). Chapters are not known
+    when the budget is set, so estimate them from the length.
+    """
+    chapters = min(6, max(2, round(minutes * 0.8)))
+    return 10.0 + 6.5 * chapters
+
+
 def word_budget(minutes: float, think_seconds: float, turn_seconds: float) -> int:
     """How many words fit in `minutes` of finished audio, pauses included.
 
@@ -92,6 +103,9 @@ def word_budget(minutes: float, think_seconds: float, turn_seconds: float) -> in
     checks that buys, subtract their silence, and re-solve.
     """
     total = max(0.5, float(minutes)) * 60.0
+    # The file includes its own opening and chapter announcements, so the lesson
+    # itself has less than the full length. Never more than a third of a short one.
+    total = max(total * 0.67, total - front_matter_seconds(minutes))
     checks = max(1.0, round(minutes * CHECKS_PER_MINUTE))
     speech = total * 0.85  # first guess
     for _ in range(3):

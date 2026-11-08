@@ -4,7 +4,7 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from . import audio, llm, store
+from . import audio, audiobook, llm, store
 from .formats import PipelineError
 
 log = logging.getLogger("buddy.jobs")
@@ -84,21 +84,26 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
             if option.get("request") and cached_title:
                 option["title"] = cached_title
         set_state("recording", script=lines)
-        rendered = audio.render(
-            [(line["host"], line["text"], line.get("role", "teach")) for line in lines],
+        # Shaped as an audiobook: the title and contents spoken, each chapter
+        # announced, an ending, and the chapters embedded in the file itself.
+        built = audiobook.produce(
             store.audio_path(podcast_id),
+            option["title"],
+            note.get("topic", ""),
+            lines,
+            plan_json,
             on_mixing=lambda: set_state("mixing", script=lines),
         )
-        # Exact offsets, straight out of the mixer — never estimated from word counts.
+        # Exact offsets, straight out of the mixer: each chapter starts at its own
+        # announcement, so jumping to it plays "Chapter two. ..." first.
         chapters = [
             {
                 "title": c["title"],
                 "startLine": c["startLine"],
-                "startSeconds": rendered.line_starts[c["startLine"]],
+                "startSeconds": c["startSeconds"],
                 "summary": c.get("summary", ""),
             }
-            for c in plan_json
-            if 0 <= c["startLine"] < len(rendered.line_starts)
+            for c in built.chapters
         ]
         # If this student already has a review, say which of its points each
         # chapter teaches, so a point they got wrong leads straight to the audio.
@@ -117,8 +122,12 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
             "ready",
             script=lines,
             chapters=chapters,
-            seconds=rendered.seconds,
+            seconds=built.seconds,
+            # Where each script line begins in the file, so a line a student got
+            # wrong can be replayed from exactly that point.
+            lineStarts=built.line_starts,
             audioUrl=f"/api/podcasts/{podcast_id}/audio.mp3",
+            audiobookUrl=f"/api/podcasts/{podcast_id}/audio.m4b",
             **extra,
         )
     except PipelineError as e:

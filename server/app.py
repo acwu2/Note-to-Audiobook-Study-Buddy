@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from buddy import ask_api, config, jobs, llm, quiz, quiz_api, review_quiz, store
+from buddy import ask_api, audiobook, config, jobs, llm, quiz, quiz_api, review_quiz, store
 from buddy.formats import FORMAT_ORDER, FORMATS, PipelineError
 
 logging.basicConfig(level=logging.INFO)
@@ -205,6 +205,21 @@ def get_podcast(podcast_id: str) -> dict:
     if status is None:
         raise HTTPException(404, "No podcast with that id.")
     return status
+
+
+@app.get("/api/podcasts/{podcast_id}/audio.m4b")
+def get_audiobook(podcast_id: str) -> FileResponse:
+    """The lesson as an .m4b with its chapters, the format audiobook apps expect."""
+    status = jobs.status(podcast_id)
+    mp3 = store.audio_path(podcast_id)
+    if status is None or status["status"] != "ready" or not mp3.exists():
+        raise HTTPException(404, "This podcast isn't ready yet.")
+    try:
+        path = audiobook.ensure_m4b(mp3)
+    except PipelineError as e:
+        raise HTTPException(500, str(e))
+    name = re.sub(r"[^A-Za-z0-9]+", "-", status.get("title", "audiobook")).strip("-").lower()
+    return FileResponse(path, media_type="audio/mp4", filename=f"{name or 'audiobook'}.m4b")
 
 
 @app.get("/api/podcasts/{podcast_id}/audio.mp3")

@@ -83,8 +83,15 @@ def _gap_after(role: str, nxt: tuple | None, host: str) -> float:
         return config.THINK_SECONDS
     if nxt is None:
         return config.TAIL_SECONDS
+    # An opening or a chapter announcement is followed by a beat before the
+    # content starts, and the content before an announcement or the ending is
+    # followed by a longer one, the way a narrator pauses between chapters.
+    if role in ("front", "chapter"):
+        return config.ANNOUNCE_SECONDS
     next_host = nxt[0]
     next_role = nxt[2] if len(nxt) > 2 else "teach"
+    if next_role in ("chapter", "end"):
+        return config.CHAPTER_BREAK_SECONDS
     if next_role in ("hook", "recap"):
         return config.SECTION_SECONDS
     if next_host == host:

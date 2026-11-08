@@ -51,6 +51,8 @@ TURN_SECONDS = 0.24         # handing over to the other host
 SECTION_SECONDS = 0.55      # a beat before a hook or a recap
 THINK_SECONDS = 3.5         # after a "check", so the student can answer aloud
 TAIL_SECONDS = 0.40         # after the last line
+ANNOUNCE_SECONDS = 0.80     # after the title, the contents, or a chapter announcement
+CHAPTER_BREAK_SECONDS = 1.10  # before a chapter announcement or the ending
 PAUSE_SECONDS = 0.35        # kept for anything still calling it
 MP3_BITRATE = "96k"
 

@@ -95,6 +95,15 @@ export interface Podcast {
   /** Echo of what the student asked for, when they asked in their own words. */
   requestText?: string;
   seconds?: number;
+  /**
+   * Where each script line begins in the audio, in seconds, aligned with `script`.
+   * The audio also has a spoken opening and chapter announcements that are not in
+   * `script`, so use these rather than adding up durations. Replay a missed
+   * question from lineStarts[scriptLines[0]].
+   */
+  lineStarts?: number[];
+  /** The same audiobook as .m4b, with its chapters, for audiobook apps. */
+  audiobookUrl?: string;
   /** The length that was asked for, when one was. Compare with `seconds`. */
   askedMinutes?: number;
   audioUrl?: string;
