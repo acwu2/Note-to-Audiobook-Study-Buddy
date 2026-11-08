@@ -13,41 +13,17 @@ transcript. Read them against the photo yourself before you trust the rest.
 """
 
 import argparse
-import os
 import re
 import sys
 import time
-from pathlib import Path
 
-from dotenv import load_dotenv
-from google import genai
-from google.genai import errors, types
+from google.genai import errors
 
-HERE = Path(__file__).resolve().parent
+from gemini import HERE, MODEL, generate, log, make_client
+
 RAW_DIR = HERE / "raw"
 TEXT_DIR = HERE / "text"
 OUT_FILE = TEXT_DIR / "notes.txt"
-
-load_dotenv(HERE / ".env")  # picks up GEMINI_API_KEY
-
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-
-# Give up on a single request after this long instead of hanging forever.
-REQUEST_TIMEOUT_SECONDS = 120
-
-
-def _timeout_errors():
-    """The SDK talks HTTP through httpx or httpx2, depending on what is installed."""
-    found = []
-    for name in ("httpx", "httpx2"):
-        try:
-            found.append(__import__(name).TimeoutException)
-        except ImportError:
-            pass
-    return tuple(found)
-
-
-TIMEOUT_ERRORS = _timeout_errors()
 
 # Set the type explicitly: Python's mimetypes doesn't know HEIC on every system.
 MIME_TYPES = {
@@ -82,16 +58,11 @@ def find_photos():
     )
 
 
-def log(step, started):
-    print(f"  [{time.monotonic() - started:5.1f}s] {step}", flush=True)
-
-
-def transcribe(client, photo, retries=5):
+def transcribe(client, photo):
     """Upload one photo and return Gemini's transcript.
 
     Prints each step with the time since this photo started, so you can see
-    whether it is working or waiting. Waits and retries on 429 (free-tier rate
-    limit), 5xx (model busy) and requests that time out.
+    whether it is working or waiting.
     """
     started = time.monotonic()
     size_mb = photo.stat().st_size / 1_000_000
@@ -101,30 +72,8 @@ def transcribe(client, photo, retries=5):
         config={"mime_type": MIME_TYPES[photo.suffix.lower()]},
     )
     try:
-        delay = 5
-        for attempt in range(retries):
-            last = attempt == retries - 1
-            log(f"asking Gemini to read it (attempt {attempt + 1}/{retries}, usually 5-30s)...", started)
-            try:
-                reply = client.models.generate_content(model=MODEL, contents=[uploaded, PROMPT])
-            except errors.APIError as e:
-                busy = e.code == 429 or (e.code or 0) >= 500
-                if not busy or last:
-                    raise
-                log(f"Gemini busy ({e.code}), waiting {delay}s before retrying...", started)
-                time.sleep(delay)
-                delay = min(delay * 2, 60)
-                continue
-            except TIMEOUT_ERRORS:
-                if last:
-                    raise RuntimeError(f"no answer after {retries} tries of {REQUEST_TIMEOUT_SECONDS}s each")
-                log(f"no answer after {REQUEST_TIMEOUT_SECONDS}s, retrying...", started)
-                continue
-            log("done", started)
-            if not reply.text:
-                reason = reply.candidates[0].finish_reason if reply.candidates else "no answer"
-                raise RuntimeError(f"Gemini returned no text ({reason})")
-            return reply.text.strip()
+        reply = generate(client, [uploaded, PROMPT], started=started, what="asking Gemini to read it")
+        return reply.text.strip()
     finally:
         # Uploads expire after 48h anyway; clean up now.
         try:
@@ -138,17 +87,12 @@ def main():
     parser.add_argument("--lines", type=int, default=5, help="how many lines of each page to show for the check (default 5)")
     args = parser.parse_args()
 
-    if not os.environ.get("GEMINI_API_KEY"):
-        sys.exit("GEMINI_API_KEY is not set. Copy .env.example to .env and add your key.")
-
     photos = find_photos()
     if not photos:
         sys.exit(f"No .png, .jpg or .heic files in {RAW_DIR}")
 
     TEXT_DIR.mkdir(exist_ok=True)
-    client = genai.Client(  # reads GEMINI_API_KEY
-        http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_SECONDS * 1000),
-    )
+    client = make_client()
 
     pages = []
     failed = []
