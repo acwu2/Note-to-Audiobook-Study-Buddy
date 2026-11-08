@@ -105,6 +105,11 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
             }
             for c in built.chapters
         ]
+        # The player's chapter list starts at 0:00 with the first chapter, the way a
+        # book's does; that chapter includes the spoken title and contents before its
+        # own announcement. (The file's embedded chapters keep "Opening" separate.)
+        if chapters:
+            chapters[0]["startSeconds"] = 0.0
         # If this student already has a review, say which of its points each
         # chapter teaches, so a point they got wrong leads straight to the audio.
         review = store.load_review(store.review_id_for(note["noteId"]))

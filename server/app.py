@@ -114,6 +114,37 @@ def _mime_of(upload: UploadFile) -> str:
     return (mimetypes.guess_type(name)[0] or "").lower()
 
 
+@app.get("/api/notes")
+def list_notes() -> list[dict]:
+    """The student's notes, newest first, for the My notes page."""
+    from datetime import datetime, timezone
+
+    podcasts_by_note: dict[str, list[dict]] = {}
+    for status_file in (config.DATA_DIR / "podcasts").glob("p_*/status.json"):
+        st = store._read_json(status_file)
+        if st and st.get("noteId"):
+            podcasts_by_note.setdefault(st["noteId"], []).append(
+                {"id": st["id"], "title": st.get("title", ""), "format": st.get("format", ""),
+                 "status": st.get("status", ""), "seconds": st.get("seconds")}
+            )
+    out = []
+    for f in (config.DATA_DIR / "notes").glob("n_*.json"):
+        n = store._read_json(f)
+        if not n:
+            continue
+        out.append({
+            "noteId": n["noteId"],
+            "topic": n.get("topic", ""),
+            "pages": len(n.get("pages", [])),
+            "unclear": sum(p.get("unclearCount", 0) for p in n.get("pages", [])),
+            # Last saved, not first created: notes are stored as one file each.
+            "savedAt": datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).isoformat(),
+            "podcasts": [p for p in podcasts_by_note.get(n["noteId"], []) if p["status"] == "ready"],
+        })
+    out.sort(key=lambda n: n["savedAt"], reverse=True)
+    return out[:50]
+
+
 @app.post("/api/notes")
 async def create_note(photos: list[UploadFile] = File(...)) -> dict:
     if not photos:
@@ -186,8 +217,8 @@ def create_podcast(req: PodcastRequest) -> dict:
 
     minutes = req.minutes
     if minutes is not None:
-        if not (0.5 <= minutes <= 20):
-            raise HTTPException(400, "Pick a length between 1 and 20 minutes.")
+        if not (0.5 <= minutes <= 30):
+            raise HTTPException(400, "Pick a length between 1 and 30 minutes.")
         option["minutes"] = minutes
 
     # The asked-for length is part of what makes a podcast that podcast.

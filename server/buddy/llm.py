@@ -335,7 +335,7 @@ def minutes_in(request: str, default: int = 5) -> int:
     m = MINUTES.search(request or "")
     if not m:
         return default
-    return max(1, min(20, int(m.group(1))))
+    return max(1, min(30, int(m.group(1))))
 
 
 def _word_count(lines: list[Line]) -> int:

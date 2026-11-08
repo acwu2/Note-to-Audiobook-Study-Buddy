@@ -403,3 +403,16 @@ export interface Judgement {
   /** { questionId: optionIndex } for the questions they answered. Pass to /attempt. */
   answers: Record<string, number>;
 }
+
+/* ---- My notes: GET /api/notes ---- */
+
+export interface NoteSummary {
+  noteId: string;
+  topic: string;
+  pages: number;
+  unclear: number;
+  /** When the notes were last saved (ISO), newest first. */
+  savedAt: string;
+  /** Finished audiobooks made from these notes. */
+  podcasts: { id: string; title: string; format: string; status: string; seconds?: number }[];
+}
