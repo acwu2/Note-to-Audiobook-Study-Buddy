@@ -1,35 +1,68 @@
-export type SourceStatus = 'transcribed' | 'unclear' | 'reading';
+/** Shapes returned by the Study Buddy API (server/app.py, contract v2). */
 
-/** One photographed page of handwritten notes. */
-export interface Source {
-  id: string;
-  name: string;
-  status: SourceStatus;
-  /** Number of words the vision model marked [unclear]. */
-  unclearCount: number;
-  /** Object URL or remote URL of the uploaded photo, when there is one. */
-  photoUrl?: string;
-  /** Step 1 · Read — what the vision model transcribed. */
-  transcript: string;
-  /** Step 2 · Prepare — the transcript rewritten for the ear. */
-  spoken: string;
-  /** Whether this page is used as context for answers. */
-  enabled: boolean;
-}
+export type FormatId = 'full_episode' | 'quick_recap' | 'deep_dive';
 
-export type MessageRole = 'user' | 'assistant' | 'pending';
-
-export interface ChatMessage {
-  id: string;
-  role: MessageRole;
-  text: string;
-  /** Source ids the answer is grounded in. */
-  citations?: string[];
-}
-
-export type SourceTab = 'photo' | 'transcript' | 'spoken';
-
-export interface Voice {
-  id: string;
+/** One entry on the fixed menu, titled from the student's notes. */
+export interface PodcastOption {
+  id: FormatId;
   label: string;
+  minutes: number;
+  title: string;
+  description: string;
+  topic?: string;
+}
+
+export interface NotePage {
+  transcript: string;
+  /** Words the vision model marked [unclear]. */
+  unclearCount: number;
+}
+
+export interface Note {
+  noteId: string;
+  topic: string;
+  pages: NotePage[];
+  options: PodcastOption[];
+}
+
+export type PodcastStatus = 'queued' | 'writing' | 'recording' | 'mixing' | 'ready' | 'failed';
+
+/**
+ * Where a line's content came from. Shown to the student, because the promise
+ * is that they can tell their own material apart from what the narrator added
+ * to teach it. Older podcasts predate the label, so treat a missing value
+ * as 'notes'.
+ */
+export type LineSource = 'notes' | 'added';
+
+export interface ScriptLine {
+  host: 'Heart' | 'Michael';
+  text: string;
+  source?: LineSource;
+}
+
+export interface Podcast {
+  id: string;
+  noteId: string;
+  optionId: FormatId;
+  title: string;
+  format: string;
+  status: PodcastStatus;
+  script?: ScriptLine[];
+  seconds?: number;
+  audioUrl?: string;
+  error?: string;
+}
+
+export interface Health {
+  ok: boolean;
+  fakeAi: boolean;
+  fakeTts: boolean;
+  model: string | null;
+}
+
+/** A file the student added, with a preview for photos. */
+export interface Upload {
+  file: File;
+  previewUrl: string | null;
 }

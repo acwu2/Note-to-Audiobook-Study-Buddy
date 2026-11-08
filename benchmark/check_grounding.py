@@ -131,13 +131,14 @@ def host_names(script: list[dict]) -> set[str]:
     return {w for line in script for w in words(str(line.get("host", "")))}
 
 
-def check(note: dict, script: list[dict]) -> list[tuple[int, str, list[str]]]:
+def check(note: dict, script: list[dict]) -> list[tuple[int, str, str, list[str]]]:
     vocab = note_vocab(note)
     vocab |= expand_acronyms(vocab, script)
     skip = STOP | host_names(script)
     findings = []
     for i, line in enumerate(script):
         text = str(line.get("text", ""))
+        source = str(line.get("source", "notes"))
         unknown, seen = [], set()
         for w in words(text):
             if w in skip or len(w) < 3 or w in vocab or w in seen:
@@ -147,7 +148,7 @@ def check(note: dict, script: list[dict]) -> list[tuple[int, str, list[str]]]:
             seen.add(w)
             unknown.append(w)
         if unknown:
-            findings.append((i, text, unknown))
+            findings.append((i, text, source, unknown))
     return findings
 
 
@@ -165,15 +166,25 @@ def report(note_path: Path, script_path: Path) -> int:
         print(f"  no script lines in {script_path.name}")
         return 0
     findings = check(note, script)
-    print(f"\n{script_path.parent.name}  ·  note {note.get('noteId', '?')}  ·  {len(script)} lines")
-    if not findings:
-        print("  every content word appears in the notes")
-        return 0
-    for i, text, unknown in findings:
-        print(f'  line {i + 1}: "{text}"')
-        print(f"    not in the notes: {', '.join(unknown)}")
-    print(f"  {len(findings)} of {len(script)} lines flagged")
-    return len(findings)
+    added = sum(1 for line in script if str(line.get("source", "notes")) == "added")
+    header = f"\n{script_path.parent.name}  ·  note {note.get('noteId', '?')}  ·  {len(script)} lines"
+    if added:
+        header += f"  ({added} labelled 'added')"
+    print(header)
+
+    # A line labelled "added" is *expected* to carry new words — that is the point
+    # of the label. Only an unsourced word inside a "notes" line is a bug.
+    leaks = [f for f in findings if f[2] != "added"]
+    for i, text, _source, unknown in leaks:
+        print(f'  LEAK line {i + 1}: "{text}"')
+        print(f"    not in the notes, but the line claims to be: {', '.join(unknown)}")
+    for i, text, _source, unknown in (f for f in findings if f[2] == "added"):
+        print(f'  ok   line {i + 1} (added): brings in {", ".join(unknown)}')
+    if not leaks:
+        print("  no unlabelled additions")
+    else:
+        print(f"  {len(leaks)} of {len(script)} lines leak")
+    return len(leaks)
 
 
 def main() -> int:
