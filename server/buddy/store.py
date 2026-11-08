@@ -41,9 +41,10 @@ def podcast_id_for(note_id: str, option_id: str, request: str = "") -> str:
     return "p_" + hashlib.sha256(key).hexdigest()[:12]
 
 
-def review_id_for(note_id: str) -> str:
-    """One review per set of notes, so a reload returns the same study session."""
-    return "r_" + hashlib.sha256(f"{_mode()}|review|{note_id}".encode()).hexdigest()[:12]
+def review_id_for(note_id: str, podcast_id: str = "") -> str:
+    """One review per set of notes (and per lesson, when it follows one)."""
+    key = f"{_mode()}|review|{note_id}|{podcast_id}"
+    return "r_" + hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
 def review_path(review_id: str) -> Path:

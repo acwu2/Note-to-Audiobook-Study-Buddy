@@ -106,6 +106,11 @@ Also divide the lesson into chapters the listener can jump between.
   vocabulary: "Why leaves look green", "Splitting water". Never name the move
   instead of the subject — no "Check 1", "Question 2", "Introduction", "Recap".
   A student scanning the list should be able to find the bit they want.
+- summary: one or two sentences saying what this chapter teaches, written to be
+  read on the page while the chapter plays. Not a trailer for it — state the
+  actual facts, so a student who reads it has learned the thing even with the
+  sound off. Use the notes' own terms and numbers. Never "in this chapter we
+  look at…".
 
 Finally, give the lesson a title: what it covers, at most eight words, in the notes'
 own vocabulary. Name the subject, not the request — "The Krebs cycle, step by step",
@@ -167,6 +172,7 @@ class Line(BaseModel):
 class ChapterPlan(BaseModel):
     title: str
     startLine: int
+    summary: str = ""
 
 
 class Script(BaseModel):
@@ -301,7 +307,7 @@ def write_script(
         # back — otherwise fake mode shows a title the audio does not match.
         key = format_id if format_id in fake.SCRIPTS else "full_episode"
         lines = _repair_arc([Line(**line) for line in fake.SCRIPTS[key]])
-        return lines, _fake_chapters(lines), fake.OPTIONS.get(f"{key}_title", "")
+        return lines, _fake_chapters(lines, key), fake.OPTIONS.get(f"{key}_title", "")
 
     target = minutes * WORDS_PER_MINUTE
     prompt = SCRIPT_PROMPT.format(
@@ -357,17 +363,16 @@ def _section_start(lines: list[Line], i: int) -> int:
     return j
 
 
-def _fake_chapters(lines: list[Line]) -> list[ChapterPlan]:
-    """FAKE_AI gets no chapters.
+def _fake_chapters(lines: list[Line], key: str = "") -> list[ChapterPlan]:
+    """Hand-written fixtures for the canned scripts, validated like any other plan.
 
-    A chapter title has to name what that stretch is about, which is a language
-    task — the model does it as part of writing the lesson. Faking it from the
-    text mechanically produces either a label about the line's role ("Check 1")
-    or a mid-sentence fragment ("It makes N A D"), and both are worse than no
-    chapter list at all: a student scanning them learns nothing and clicks into
-    the wrong place. So the fake path returns nothing and the UI hides the list.
+    Titling and summarising are language tasks; the model does them on the real
+    path. Deriving them mechanically gave "Check 1" and "It makes N A D", both
+    worse than nothing. These are authored fixtures instead, so fake mode shows
+    the feature rather than an empty list.
     """
-    return []
+    plan = [ChapterPlan(**c) for c in fake.CHAPTERS.get(key, [])]
+    return _clean_chapters(plan, lines)
 
 
 def _clean_chapters(plan: list[ChapterPlan], lines: list[Line]) -> list[ChapterPlan]:
@@ -391,10 +396,11 @@ def _clean_chapters(plan: list[ChapterPlan], lines: list[Line]) -> list[ChapterP
             start = _section_start(lines, start)
         if out and start <= out[-1].startLine:
             continue
-        out.append(ChapterPlan(title=title, startLine=start))
+        summary = re.sub(r"\s+", " ", str(ch.summary or "")).strip()[:320]
+        out.append(ChapterPlan(title=title, startLine=start, summary=summary))
     if len(out) < 2:
         return []
-    out[0] = ChapterPlan(title=out[0].title, startLine=0)
+    out[0] = out[0].model_copy(update={"startLine": 0})
     return out[:7]
 
 
@@ -458,6 +464,18 @@ Also give the review a title of at most eight words, naming the subject.
 Notes:
 {notes}"""
 
+REVIEW_SCRIPT_TAIL = """
+
+The student has just listened to this lesson, so the review should cover what
+they heard, in terms they have already met. The lesson's lines are numbered.
+
+For each review point, set lineRefs to the line numbers that taught it — usually
+one to three, consecutive. Use only numbers that exist below. Leave it empty
+when a point draws on the notes rather than on anything actually said.
+
+Lesson:
+{script}"""
+
 QUIZ_PROMPT = """Write quiz questions on a review a student has just read.
 
 Each question tests exactly one point of the review, and says which by its id.
@@ -504,6 +522,9 @@ class ReviewPoint(BaseModel):
     body: str
     source: Source = Source.NOTES
     exam: bool = False
+    # Which lines of the lesson script taught this, when the review was made
+    # from a podcast. Lets a wrong answer replay the stretch that covered it.
+    lineRefs: list[int] = []
 
 
 class ReviewDoc(BaseModel):
@@ -527,6 +548,8 @@ class Card(BaseModel):
     pointId: str
     front: str
     back: str
+    # Names the wrong option they actually picked, when there was one.
+    because: str = ""
 
 
 class CardsDoc(BaseModel):
@@ -537,19 +560,40 @@ def _point_id(i: int) -> str:
     return f"p{i + 1}"
 
 
-def write_review(transcripts: list[str]) -> ReviewDoc:
-    """The page the student reads before being tested on it."""
+def write_review(transcripts: list[str], script: list[dict] | None = None) -> ReviewDoc:
+    """The page the student reads before being tested on it.
+
+    Given the script of a lesson they just heard, the review covers what was
+    actually said and each point records which lines taught it, so a wrong
+    answer later can replay that stretch.
+    """
     if config.FAKE_AI:
-        return ReviewDoc(**fake.REVIEW)
-    doc = _generate(REVIEW_PROMPT.format(notes=_notes_block(transcripts)), ReviewDoc)
+        doc = ReviewDoc(**fake.REVIEW)
+        return doc if script else ReviewDoc(
+            title=doc.title,
+            points=[p.model_copy(update={"lineRefs": []}) for p in doc.points],
+        )
+
+    prompt = REVIEW_PROMPT.format(notes=_notes_block(transcripts))
+    if script:
+        numbered = "\n".join(f"{i}. {l.get('text','')}" for i, l in enumerate(script))
+        prompt += REVIEW_SCRIPT_TAIL.format(script=numbered)
+
+    doc = _generate(prompt, ReviewDoc)
+    n_lines = len(script or [])
     points = []
-    for i, p in enumerate(doc.points):
+    for p in doc.points:
         heading = re.sub(r"\s+", " ", p.heading or "").strip()
         body = re.sub(r"\s+", " ", p.body or "").strip()
         if not heading or not body:
             continue
+        # A reference to a line that does not exist would seek into nothing, so
+        # drop those rather than hand the player a bad offset.
+        refs = sorted({int(r) for r in (p.lineRefs or []) if isinstance(r, int) and 0 <= r < n_lines})
         # Ids are assigned here, not by the model, so the quiz can rely on them.
-        points.append(p.model_copy(update={"id": _point_id(len(points)), "heading": heading, "body": body}))
+        points.append(p.model_copy(update={
+            "id": _point_id(len(points)), "heading": heading, "body": body, "lineRefs": refs,
+        }))
     if not points:
         raise PipelineError("A review could not be built from these notes. Try a clearer photo.")
     title = re.sub(r"\s+", " ", doc.title or "").strip()[:80]
@@ -609,7 +653,14 @@ def write_cards(review: ReviewDoc, missed: list[str], chosen: dict[str, str] | N
     if not wanted:
         return CardsDoc(cards=[])
     if config.FAKE_AI:
-        cards = [Card(**c) for c in fake.CARDS if c["pointId"] in {p.id for p in wanted}]
+        picked = chosen or {}
+        cards = [
+            Card(**c).model_copy(update={
+                "because": f"You picked: {picked[c['pointId']]}" if c["pointId"] in picked else ""
+            })
+            for c in fake.CARDS
+            if c["pointId"] in {p.id for p in wanted}
+        ]
         return CardsDoc(cards=cards)
     blocks = []
     for p in wanted:
@@ -618,9 +669,87 @@ def write_cards(review: ReviewDoc, missed: list[str], chosen: dict[str, str] | N
         blocks.append(f"[{p.id}] {p.heading}\n{p.body}{note}")
     doc = _generate(CARDS_PROMPT.format(points="\n\n".join(blocks)), CardsDoc)
     valid = {p.id for p in wanted}
+    picked = chosen or {}
     cards = [
-        c.model_copy(update={"front": c.front.strip(), "back": c.back.strip()})
+        c.model_copy(update={
+            "front": c.front.strip(),
+            "back": c.back.strip(),
+            "because": (c.because or "").strip() or (
+                f"You picked: {picked[c.pointId]}" if c.pointId in picked else ""
+            ),
+        })
         for c in doc.cards
         if c.pointId in valid and str(c.front or "").strip() and str(c.back or "").strip()
     ]
     return CardsDoc(cards=cards[: 2 * len(wanted)])
+
+
+# ---- tying chapters to the points the quiz tests ----
+#
+# The review already names the things a student has to learn, and the quiz tests
+# them by id. If a chapter can say which of those points it teaches, the loop
+# closes both ways: a student who missed p3 can jump straight to the audio that
+# explains it, instead of scrubbing. Matching is done here, deterministically,
+# rather than with another model call.
+
+_STOP_MATCH = set("""
+a an and are as at be been but by for from had has have how in into is it its of
+on or that the their then there these they this to was were what when which who
+will with you your
+also first second third next last then thing things idea ideas point points
+""".split())
+
+
+def _stem(w: str) -> str:
+    """Crude but enough: the review says "reflects", the chapter says "reflect"."""
+    for suf in ("ing", "es", "ed", "s"):
+        if w.endswith(suf) and len(w) - len(suf) >= 4:
+            return w[: -len(suf)]
+    return w
+
+
+def _bag(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9][a-z0-9'-]*", str(text or "").lower())
+    return {_stem(w) for w in words if len(w) > 2 and w not in _STOP_MATCH}
+
+
+def link_chapters_to_points(
+    chapters: list[dict],
+    points: list[dict],
+    min_score: float = 0.6,
+    min_heading: float = 0.75,
+) -> list[dict]:
+    """Attach `pointIds` to each chapter, where the match is convincing.
+
+    Scored mostly on the point's heading, because the heading is what names the
+    idea: a point called "The Krebs cycle" belongs to the chapter that says
+    "Krebs cycle", however much other detail its body carries. Scoring on the
+    whole point instead punishes the well-written ones — a body full of specific
+    terms dilutes the match and the point goes unlinked.
+
+    A point is attached only when the chapter covers most of its heading as well
+    as clearing the overall bar, and goes to one chapter at most. Below either
+    bar nothing is attached: an unlinked chapter is honest, a wrongly linked one
+    sends the student to audio that does not explain the thing they got wrong.
+    """
+    if not chapters or not points:
+        return chapters
+    ch_bags = [_bag(f"{c.get('title', '')} {c.get('summary', '')}") for c in chapters]
+    for p in points:
+        pid = p.get("id")
+        head, body = _bag(p.get("heading", "")), _bag(p.get("body", ""))
+        if not pid or not head:
+            continue
+        top_score = top_head = 0.0
+        top_i = -1
+        for i, cb in enumerate(ch_bags):
+            if not cb:
+                continue
+            h = len(head & cb) / len(head)
+            b = len(body & cb) / len(body) if body else 0.0
+            score = 0.7 * h + 0.3 * b
+            if score > top_score:
+                top_score, top_head, top_i = score, h, i
+        if top_i >= 0 and top_score >= min_score and top_head >= min_heading:
+            chapters[top_i].setdefault("pointIds", []).append(pid)
+    return chapters

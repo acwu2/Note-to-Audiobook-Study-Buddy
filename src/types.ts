@@ -67,6 +67,19 @@ export interface Chapter {
   title: string;
   startLine: number;
   startSeconds: number;
+  /**
+   * One or two sentences stating what this chapter teaches, written to be read
+   * on the page while it plays. It states the facts rather than trailing them,
+   * so a student who reads it has learned the thing with the sound off.
+   */
+  summary?: string;
+  /**
+   * Review points this chapter teaches, when a review exists for these notes
+   * and the match was convincing. Lets a point the student got wrong in the
+   * quiz link straight to the audio that explains it. Absent or empty means no
+   * confident match — show no link rather than a wrong one.
+   */
+  pointIds?: string[];
 }
 
 export interface Podcast {
@@ -192,6 +205,12 @@ export interface ReviewPoint {
   source: LineSource;
   /** True only where the notes themselves flag it as examinable. */
   exam: boolean;
+  /**
+   * Lines of the lesson script that taught this point, when the review was
+   * made from a podcast. Use with that podcast's chapters to replay the
+   * stretch a missed point came from. Empty when there is nothing to replay.
+   */
+  lineRefs?: number[];
 }
 
 export interface ReviewQuestion {
@@ -208,6 +227,8 @@ export interface ReviewQuestion {
 export interface Review {
   reviewId: string;
   noteId: string;
+  /** Set when the review follows a lesson; what lineRefs point into. */
+  podcastId?: string;
   title: string;
   points: ReviewPoint[];
   /** Written with the review and stored beside it, so the two cannot drift. */
@@ -216,8 +237,12 @@ export interface Review {
 
 export interface ReviewResult {
   pointId: string;
-  /** What the student picked, or null if they skipped it. */
-  picked: number | null;
+  q: string;
+  options: string[];
+  /** What the student picked, or null if they left it blank. */
+  chosen: number | null;
+  /** Blank is not the same as guessing wrong — show them differently. */
+  skipped: boolean;
   correct: boolean;
   answer: number;
   why: string;
@@ -228,6 +253,8 @@ export interface ReviewCard {
   pointId: string;
   front: string;
   back: string;
+  /** Names the wrong option they actually picked, when there was one. */
+  because?: string;
 }
 
 export interface Marks {

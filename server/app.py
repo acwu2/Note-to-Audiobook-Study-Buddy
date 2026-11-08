@@ -214,6 +214,9 @@ def get_audio(podcast_id: str, download: bool = False) -> FileResponse:
 
 class ReviewRequest(BaseModel):
     noteId: str
+    # When the review follows a lesson, its points carry lineRefs back into that
+    # lesson's script, so a missed point can replay what taught it.
+    podcastId: str | None = None
 
 
 class AnswerSheet(BaseModel):
@@ -228,17 +231,27 @@ def create_review(req: ReviewRequest) -> dict:
     note = store.load_note(req.noteId)
     if note is None:
         raise HTTPException(404, "Those notes aren't on the server any more. Upload them again.")
-    review_id = store.review_id_for(req.noteId)
+    script = None
+    if req.podcastId:
+        loaded = store.load_script(req.podcastId)
+        if loaded is None:
+            raise HTTPException(404, "That lesson isn't on the server any more.")
+        script = loaded[0]
+
+    # A review of the notes and a review of a lesson made from them are
+    # different documents, so the lesson is part of the key.
+    review_id = store.review_id_for(req.noteId, req.podcastId or "")
     cached = store.load_review(review_id)
     if cached:
         return cached
 
     transcripts = [p["transcript"] for p in note["pages"]]
-    doc = llm.write_review(transcripts)
+    doc = llm.write_review(transcripts, script)
     quiz = llm.write_quiz(doc)
     review = {
         "reviewId": review_id,
         "noteId": req.noteId,
+        **({"podcastId": req.podcastId} if req.podcastId else {}),
         "title": doc.title or note.get("topic", "Review"),
         "points": [p.model_dump(mode="json") for p in doc.points],
         # The quiz is written with the review and stored with it, so the two can
@@ -267,7 +280,12 @@ def mark_quiz(review_id: str, sheet: AnswerSheet) -> dict:
                 chosen[point_id] = q["options"][picked]
         results.append({
             "pointId": point_id,
-            "picked": picked,
+            "q": q["q"],
+            "options": q["options"],
+            # Leaving it blank is not the same as guessing wrong: one is a gap
+            # in knowledge, the other may be a gap in attention.
+            "chosen": picked,
+            "skipped": picked is None,
             "correct": correct,
             "answer": q["answer"],
             "why": q.get("why", ""),

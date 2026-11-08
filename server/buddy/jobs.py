@@ -74,7 +74,10 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
                 }
                 for line in written
             ]
-            plan_json = [{"title": c.title, "startLine": c.startLine} for c in plan]
+            plan_json = [
+                {"title": c.title, "startLine": c.startLine, "summary": c.summary}
+                for c in plan
+            ]
             store.save_script(podcast_id, lines, plan_json, option["title"])
         else:
             lines, plan_json, cached_title = cached
@@ -92,10 +95,16 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
                 "title": c["title"],
                 "startLine": c["startLine"],
                 "startSeconds": rendered.line_starts[c["startLine"]],
+                "summary": c.get("summary", ""),
             }
             for c in plan_json
             if 0 <= c["startLine"] < len(rendered.line_starts)
         ]
+        # If this student already has a review, say which of its points each
+        # chapter teaches, so a point they got wrong leads straight to the audio.
+        review = store.load_review(store.review_id_for(note["noteId"]))
+        if review and review.get("points"):
+            chapters = llm.link_chapters_to_points(chapters, review["points"])
         extra = {}
         asked = option.get("minutes") or (
             llm.minutes_in(option["request"]) if option.get("request") else None

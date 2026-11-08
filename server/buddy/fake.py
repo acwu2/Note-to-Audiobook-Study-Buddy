@@ -128,3 +128,56 @@ CARDS = [
     {"pointId": "p4", "front": "Where do the ~34 ATP come from?", "back": "The electron transport chain, the third stage"},
     {"pointId": "p5", "front": "NADH and FADH2 are made by ___ and used by ___", "back": "made by the Krebs cycle, used by the electron transport chain"},
 ]
+
+# Hand-written chapters for the canned scripts above. Not generated: titling and
+# summarising are language tasks the model does on the real path, and deriving
+# them mechanically produced fragments like "It makes N A D". These are fixtures
+# in the same sense the scripts are, so the feature is visible without a key.
+CHAPTERS = {
+    "full_episode": [
+        {
+            "title": "What respiration is for",
+            "startLine": 0,
+            "summary": "Cellular respiration is how cells get usable energy out of food. Everything else in the notes hangs off that one job.",
+        },
+        {
+            "title": "The three stages",
+            "startLine": 1,
+            "summary": "Three stages in order: glycolysis in the cytoplasm, then the Krebs cycle in the mitochondria, then the electron transport chain. Glycolysis is the only one outside the mitochondria.",
+        },
+        {
+            "title": "Where the ATP comes from",
+            "startLine": 5,
+            "summary": "The last stage, the electron transport chain, makes most of the ATP — about thirty-four of them.",
+        },
+    ],
+    "quick_recap": [
+        {
+            "title": "Three questions",
+            "startLine": 0,
+            "summary": "A recap for someone who has already studied: name the three stages, and say which one makes most of the ATP.",
+        },
+        {
+            "title": "How you did",
+            "startLine": 5,
+            "summary": "If the three stages and the thirty-four ATP came back quickly, you are ready. If not, the full lesson walks through them.",
+        },
+    ],
+    "deep_dive": [
+        {
+            "title": "Two names, one cycle",
+            "startLine": 0,
+            "summary": "The Krebs cycle is also called the citric acid cycle — same thing, two names. It sits in the middle of the chain, which is why it is easy to isolate and lose marks on.",
+        },
+        {
+            "title": "Twice per glucose",
+            "startLine": 3,
+            "summary": "The cycle runs twice for every glucose, because one glucose is split in two earlier on and each half goes round.",
+        },
+        {
+            "title": "What it hands on",
+            "startLine": 6,
+            "summary": "It makes NADH and FADH2, and those feed the electron transport chain, the stage that follows.",
+        },
+    ],
+}
