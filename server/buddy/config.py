@@ -10,9 +10,12 @@ load_dotenv(SERVER_DIR / ".env")
 
 DATA_DIR = Path(os.environ.get("STUDY_BUDDY_DATA", SERVER_DIR / "data"))
 
-# The workshop uses this model on Gemini's free tier. Check
-# aistudio.google.com/docs/models for the current free Flash model.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# gemini-2.5-flash is retired for new API keys — it is still listed by
+# ListModels but generateContent returns 404 NOT_FOUND with "no longer
+# available to new users". Verified working on a fresh key: gemini-3.5-flash
+# and gemini-3.8-flash. Free tier allows 20 requests per day PER MODEL, so
+# switching model also resets the quota.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
 # Test modes: run the whole flow without a Gemini key (FAKE_AI) or without
 # Kokoro (FAKE_TTS). Fake AI returns sample notes; fake TTS makes tones.
@@ -20,7 +23,7 @@ FAKE_AI = os.environ.get("FAKE_AI") == "1"
 FAKE_TTS = os.environ.get("FAKE_TTS") == "1"
 
 # Bump when a prompt, format or voice changes, so cached results are rebuilt.
-PIPELINE_VERSION = "4"
+PIPELINE_VERSION = "5"
 
 SAMPLE_RATE = 24_000  # Kokoro's output rate
 # Pacing. Kokoro leaves ~0.3s before and ~0.5s after each line; audio._trim strips
