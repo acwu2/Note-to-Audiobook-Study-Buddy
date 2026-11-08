@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import time
 from enum import Enum
 
@@ -76,6 +77,12 @@ Rules:
 - Plain spoken sentences. No stage directions, sound effects, emoji or markdown.
 - Each line is one or two sentences.
 
+Also divide the lesson into chapters the listener can jump between.
+- Between two and seven chapters, in order, the first starting at line 0.
+- A chapter starts where a new idea begins, never in the middle of one, and never
+  between a check and its answer.
+- Title each in two to five words, using the notes' own vocabulary.
+
 Notes:
 {notes}"""
 
@@ -128,8 +135,14 @@ class Line(BaseModel):
     role: Role = Role.TEACH
 
 
+class ChapterPlan(BaseModel):
+    title: str
+    startLine: int
+
+
 class Script(BaseModel):
     lines: list[Line]
+    chapters: list[ChapterPlan] = []
 
 
 # ---- Calls ----
@@ -210,21 +223,91 @@ def name_options(transcripts: list[str]) -> Options:
     return _generate(OPTIONS_PROMPT.format(notes=_notes_block(transcripts)), Options)
 
 
-def write_script(transcripts: list[str], format_id: str, topic: str | None) -> list[Line]:
-    fmt = FORMATS[format_id]
+MINUTES = re.compile(r"(\d{1,3})\s*(?:-|\s)?\s*(?:minute|minutes|min|mins)\b", re.I)
+
+
+def minutes_in(request: str, default: int = 5) -> int:
+    """Pull a length out of the student's own words: '5 minute overview' -> 5."""
+    m = MINUTES.search(request or "")
+    if not m:
+        return default
+    return max(1, min(20, int(m.group(1))))
+
+
+def write_script(
+    transcripts: list[str],
+    format_id: str | None,
+    topic: str | None,
+    request: str = "",
+) -> tuple[list[Line], list[ChapterPlan]]:
+    """Write the lesson from a preset format, or from the student's own request."""
+    if request.strip():
+        label = "Your request"
+        brief = (
+            "The student asked for this in their own words, so follow it as closely as "
+            "the notes allow:\n\n"
+            f'"{request.strip()}"\n\n'
+            "Honour what they asked for in shape as well as in content. If they asked "
+            "for an overview, do not go deep on one part. If they named a topic, stay "
+            "on it. If the notes cannot support part of the request, cover what they do "
+            "support and do not invent the rest."
+        )
+        minutes = minutes_in(request)
+    else:
+        fmt = FORMATS[format_id]
+        label, minutes = fmt.label, fmt.minutes
+        brief = fmt.brief.format(topic=topic or "the main topic")
+
     if config.FAKE_AI:
-        return [Line(**line) for line in fake.SCRIPTS[format_id]]
+        key = format_id if format_id in fake.SCRIPTS else "full_episode"
+        lines = [Line(**line) for line in fake.SCRIPTS[key]]
+        return _repair_arc(lines), _fake_chapters(lines)
+
     prompt = SCRIPT_PROMPT.format(
-        label=fmt.label,
-        brief=fmt.brief.format(topic=topic or "the main topic"),
-        words=fmt.minutes * WORDS_PER_MINUTE,
+        label=label,
+        brief=brief,
+        words=minutes * WORDS_PER_MINUTE,
         notes=_notes_block(transcripts),
     )
     script = _generate(prompt, Script)
     lines = [line for line in script.lines if line.text.strip()][:200]
     if not lines:
         raise PipelineError("The AI wrote an empty script. Try a clearer photo.")
-    return _repair_arc(lines)
+    lines = _repair_arc(lines)
+    return lines, _clean_chapters(script.chapters, lines)
+
+
+def _fake_chapters(lines: list[Line]) -> list[ChapterPlan]:
+    """A plausible plan for FAKE_AI: start a chapter at each hook and each check."""
+    plan = [ChapterPlan(title="Where this fits", startLine=0)]
+    for i, line in enumerate(lines):
+        if i and line.role is Role.CHECK:
+            plan.append(ChapterPlan(title=f"Check {len(plan)}", startLine=i))
+    return _clean_chapters(plan, lines)
+
+
+def _clean_chapters(plan: list[ChapterPlan], lines: list[Line]) -> list[ChapterPlan]:
+    """Keep a chapter list only if it is sound. A wrong chapter is worse than none.
+
+    Must ascend, not repeat, stay in range, start at 0, and never split a check
+    from its answer — landing there would drop the listener into an answer to a
+    question they never heard.
+    """
+    out: list[ChapterPlan] = []
+    for ch in plan or []:
+        title = re.sub(r"\s+", " ", str(ch.title or "")).strip()[:64]
+        start = int(ch.startLine)
+        if not title or not (0 <= start < len(lines)):
+            continue
+        if out and start <= out[-1].startLine:
+            continue
+        if lines[start].role is Role.ANSWER:
+            continue
+        out.append(ChapterPlan(title=title, startLine=start))
+    if len(out) < 2:
+        return []
+    out[0] = ChapterPlan(title=out[0].title, startLine=0)
+    return out[:7]
 
 
 def _repair_arc(lines: list[Line]) -> list[Line]:

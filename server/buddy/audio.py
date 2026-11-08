@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -54,12 +55,21 @@ def _silence(seconds: float) -> np.ndarray:
     return np.zeros(int(config.SAMPLE_RATE * seconds), dtype=np.float32)
 
 
+@dataclass(frozen=True)
+class Render:
+    seconds: float
+    line_starts: list[float]
+    """Where each line begins in the finished MP3. Exact, because the mixer knows
+    every rendered duration before it concatenates — chapter offsets come from
+    here rather than from estimating word counts."""
+
+
 def render(
     lines: list[tuple[str, str]] | list[tuple[str, str, str]],
     out_mp3: Path,
     on_mixing: Callable[[], None] | None = None,
-) -> float:
-    """Speak (host, text[, role]) lines in order, write out_mp3, return its length.
+) -> Render:
+    """Speak (host, text[, role]) lines in order, write out_mp3, report the timing.
 
     A line with role "check" is a question put to the student, so it is followed by
     a longer silence: long enough to actually answer out loud before the lesson
@@ -69,12 +79,18 @@ def render(
         raise PipelineError("The server needs ffmpeg to make MP3s. Install it with: brew install ffmpeg")
     pause = _silence(config.PAUSE_SECONDS)
     think = _silence(config.THINK_SECONDS)
-    chunks = []
+    chunks: list[np.ndarray] = []
+    line_starts: list[float] = []
+    samples = 0
     for line in lines:
         host, text = line[0], line[1]
         role = line[2] if len(line) > 2 else "teach"
-        chunks.append(speak_line(text, HOSTS[host]))
-        chunks.append(think if role == "check" else pause)
+        line_starts.append(round(samples / config.SAMPLE_RATE, 2))
+        spoken = speak_line(text, HOSTS[host])
+        gap = think if role == "check" else pause
+        chunks.append(spoken)
+        chunks.append(gap)
+        samples += len(spoken) + len(gap)
     if on_mixing:
         on_mixing()
     audio = np.concatenate(chunks) if chunks else pause
@@ -90,4 +106,4 @@ def render(
         raise PipelineError("Encoding the MP3 failed.") from e
     finally:
         wav.unlink(missing_ok=True)
-    return round(len(audio) / config.SAMPLE_RATE, 1)
+    return Render(round(len(audio) / config.SAMPLE_RATE, 1), line_starts)

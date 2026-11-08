@@ -50,14 +50,32 @@ export interface ScriptLine {
   role?: LineRole;
 }
 
+/**
+ * A point the listener can jump to. `startSeconds` is exact: the mixer knows
+ * every line's rendered duration before it concatenates, so offsets come out of
+ * that loop rather than being estimated from word counts. Seek straight to it.
+ *
+ * Absent when no sound chapter plan could be made — a wrong chapter is worse
+ * than none, so the server drops the whole list rather than emit a bad one.
+ */
+export interface Chapter {
+  title: string;
+  startLine: number;
+  startSeconds: number;
+}
+
 export interface Podcast {
   id: string;
   noteId: string;
-  optionId: FormatId;
+  /** 'custom' when the student typed their own request instead of picking a card. */
+  optionId: FormatId | 'custom';
   title: string;
   format: string;
   status: PodcastStatus;
   script?: ScriptLine[];
+  chapters?: Chapter[];
+  /** Echo of what the student asked for, when they asked in their own words. */
+  requestText?: string;
   seconds?: number;
   audioUrl?: string;
   error?: string;

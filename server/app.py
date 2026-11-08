@@ -125,7 +125,11 @@ async def create_note(photos: list[UploadFile] = File(...)) -> dict:
 
 class PodcastRequest(BaseModel):
     noteId: str
-    optionId: str
+    optionId: str | None = None
+    request: str | None = None  # the student's own words; one of optionId | request
+
+
+MAX_REQUEST_CHARS = 500
 
 
 @app.post("/api/podcasts", status_code=202)
@@ -133,10 +137,25 @@ def create_podcast(req: PodcastRequest) -> dict:
     note = store.load_note(req.noteId)
     if note is None:
         raise HTTPException(404, "Those notes aren't on the server any more. Upload them again.")
-    option = next((o for o in note["options"] if o["id"] == req.optionId), None)
-    if option is None:
-        raise HTTPException(400, "Pick one of the options shown.")
-    podcast_id = store.podcast_id_for(note["noteId"], option["id"])
+
+    asked = (req.request or "").strip()
+    if asked:
+        if len(asked) > MAX_REQUEST_CHARS:
+            raise HTTPException(400, f"Keep the request under {MAX_REQUEST_CHARS} characters.")
+        # A request the student typed is its own option: same shape as a preset, so
+        # everything downstream — status, caching, the job — stays unchanged.
+        option = {
+            "id": "custom",
+            "label": "Your request",
+            "title": asked if len(asked) <= 60 else asked[:57].rstrip() + "…",
+            "request": asked,
+        }
+    else:
+        option = next((o for o in note["options"] if o["id"] == req.optionId), None)
+        if option is None:
+            raise HTTPException(400, "Pick one of the options shown, or say what you want.")
+
+    podcast_id = store.podcast_id_for(note["noteId"], option["id"], option.get("request", ""))
     jobs.start(podcast_id, note, option)
     return {"id": podcast_id}
 

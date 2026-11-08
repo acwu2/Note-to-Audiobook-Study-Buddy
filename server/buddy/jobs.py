@@ -31,7 +31,7 @@ def start(podcast_id: str, note: dict, option: dict) -> None:
 
 
 def _status(podcast_id: str, note: dict, option: dict, state: str, **extra) -> dict:
-    return {
+    status = {
         "id": podcast_id,
         "noteId": note["noteId"],
         "optionId": option["id"],
@@ -40,6 +40,9 @@ def _status(podcast_id: str, note: dict, option: dict, state: str, **extra) -> d
         "status": state,
         **extra,
     }
+    if option.get("request"):
+        status["requestText"] = option["request"]
+    return status
 
 
 def _run(podcast_id: str, note: dict, option: dict) -> None:
@@ -47,11 +50,16 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
         store.save_status(podcast_id, _status(podcast_id, note, option, state, **extra))
 
     try:
-        lines = store.load_script(podcast_id)
-        if lines is None:
+        cached = store.load_script(podcast_id)
+        if cached is None:
             set_state("writing")
             transcripts = [p["transcript"] for p in note["pages"]]
-            written = llm.write_script(transcripts, option["id"], option.get("topic"))
+            written, plan = llm.write_script(
+                transcripts,
+                option["id"],
+                option.get("topic"),
+                request=option.get("request", ""),
+            )
             lines = [
                 {
                     "host": line.host.value,
@@ -61,17 +69,31 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
                 }
                 for line in written
             ]
-            store.save_script(podcast_id, lines)
+            plan_json = [{"title": c.title, "startLine": c.startLine} for c in plan]
+            store.save_script(podcast_id, lines, plan_json)
+        else:
+            lines, plan_json = cached
         set_state("recording", script=lines)
-        seconds = audio.render(
+        rendered = audio.render(
             [(line["host"], line["text"], line.get("role", "teach")) for line in lines],
             store.audio_path(podcast_id),
             on_mixing=lambda: set_state("mixing", script=lines),
         )
+        # Exact offsets, straight out of the mixer — never estimated from word counts.
+        chapters = [
+            {
+                "title": c["title"],
+                "startLine": c["startLine"],
+                "startSeconds": rendered.line_starts[c["startLine"]],
+            }
+            for c in plan_json
+            if 0 <= c["startLine"] < len(rendered.line_starts)
+        ]
         set_state(
             "ready",
             script=lines,
-            seconds=seconds,
+            chapters=chapters,
+            seconds=rendered.seconds,
             audioUrl=f"/api/podcasts/{podcast_id}/audio.mp3",
         )
     except PipelineError as e:
