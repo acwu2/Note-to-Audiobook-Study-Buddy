@@ -15,11 +15,16 @@ log = logging.getLogger("buddy.llm")
 
 # ---- Prompts (fixed; bump config.PIPELINE_VERSION when you change one) ----
 
-TRANSCRIBE_PROMPT = """Transcribe the handwritten notes in this file exactly, in reading order.
+# Rules for margin notes, crossed-out text and copying exactly come from the
+# engineer's server/transcribe.py, which had already been tuned on real pages.
+TRANSCRIBE_PROMPT = """Transcribe the handwriting in this file exactly, in reading order.
 Rules:
-- Plain text only. No markdown, no commentary.
-- Keep the line breaks as they are on the page.
-- If you cannot read a word, write [unclear] in its place. Never guess.
+- Plain text only. No markdown, no commentary, no preamble.
+- Keep the reading order: top to bottom, left to right. Keep the writer's own line breaks.
+- Copy exactly what is written, including shorthand, symbols and spelling. Do not correct or expand anything.
+- Never guess. If you cannot read a word with confidence, write [unclear] in its place.
+- Margin notes are separate from the main text. Never merge a margin note into a main-text line or split it across lines. Put each margin note whole on its own line, starting with "Margin note:", directly after the main-text line it sits beside or points to. A margin note that wraps over several handwritten lines is still one note: join it into a single line.
+- Ignore the paper itself (ruled lines, margins, holes) and anything crossed out.
 - Return one entry per page. A photo is one page."""
 
 OPTIONS_PROMPT = """These are a student's transcribed notes. Say what they are about, and title three podcast episodes made only from them.
@@ -187,6 +192,20 @@ _client = None
 _RETRY_CODES = {429, 500, 502, 503, 504}
 
 
+def _timeout_errors() -> tuple:
+    """The SDK talks HTTP through httpx or httpx2, depending on what is installed."""
+    found = []
+    for name in ("httpx", "httpx2"):
+        try:
+            found.append(__import__(name).TimeoutException)
+        except ImportError:
+            pass
+    return tuple(found)
+
+
+TIMEOUT_ERRORS = _timeout_errors()
+
+
 def _gemini():
     global _client
     if _client is None:
@@ -196,8 +215,13 @@ def _gemini():
                 "or start it with FAKE_AI=1 to test without one."
             )
         from google import genai
+        from google.genai import types
 
-        _client = genai.Client()
+        # The engineer's transcribe.py gives up after 120s rather than hang. Ours
+        # also writes long scripts, which legitimately take longer, hence 180.
+        _client = genai.Client(
+            http_options=types.HttpOptions(timeout=config.REQUEST_TIMEOUT_SECONDS * 1000)
+        )
     return _client
 
 
@@ -211,13 +235,24 @@ def _generate(contents, schema: type[BaseModel]) -> BaseModel:
         response_schema=schema,
     )
     delay = 2.0
-    for attempt in range(6):
-        try:
-            resp = _gemini().models.generate_content(
-                model=config.GEMINI_MODEL, contents=contents, config=cfg
+    attempt = 0
+    while attempt < 6:
+        model = _pick_model()
+        if model is None:
+            raise PipelineError(
+                "Every Gemini model has hit its free daily limit. Try again tomorrow, or add a paid key."
             )
+        try:
+            resp = _gemini().models.generate_content(model=model, contents=contents, config=cfg)
         except errors.APIError as e:
-            if e.code in _RETRY_CODES and attempt < 5:
+            if e.code == 429 and _is_daily_quota(e):
+                # Spent for the day, not busy for a minute: waiting cannot help,
+                # but another model has its own allowance. Move on at once.
+                _mark_spent(model)
+                log.warning("%s is out of daily quota; trying the next model", model)
+                continue
+            attempt += 1
+            if e.code in _RETRY_CODES and attempt < 6:
                 log.warning("Gemini returned %s; retrying in %.0fs", e.code, delay)
                 time.sleep(delay)
                 delay = min(delay * 2, 30)
@@ -229,6 +264,12 @@ def _generate(contents, schema: type[BaseModel]) -> BaseModel:
             if e.code in (401, 403):
                 raise PipelineError("The server's Gemini API key was rejected.") from e
             raise PipelineError("The AI service couldn't handle this request.") from e
+        except TIMEOUT_ERRORS as e:
+            attempt += 1
+            if attempt < 3:
+                log.warning("Gemini did not answer in %ss; retrying", config.REQUEST_TIMEOUT_SECONDS)
+                continue
+            raise PipelineError("The AI service took too long to answer. Try again.") from e
         if isinstance(resp.parsed, schema):
             return resp.parsed
         try:
@@ -236,6 +277,30 @@ def _generate(contents, schema: type[BaseModel]) -> BaseModel:
         except ValidationError as e:
             raise PipelineError("The AI's answer came back in the wrong shape.") from e
     raise PipelineError("The AI service didn't answer. Try again in a minute.")
+
+
+# Models whose daily free allowance is gone, and when we noticed. Per process, and
+# forgotten after a few hours, because the allowance resets.
+_SPENT: dict[str, float] = {}
+_SPENT_FOR_SECONDS = 6 * 3600
+
+
+def _is_daily_quota(e) -> bool:
+    text = str(e).lower()
+    return "perday" in text.replace(" ", "").replace("_", "") or "per day" in text or "requests per day" in text
+
+
+def _mark_spent(model: str) -> None:
+    _SPENT[model] = time.time()
+
+
+def _pick_model() -> str | None:
+    """The first model in the chain that still has quota today."""
+    now = time.time()
+    for m in [config.GEMINI_MODEL, *config.GEMINI_FALLBACKS]:
+        if now - _SPENT.get(m, 0.0) > _SPENT_FOR_SECONDS:
+            return m
+    return None
 
 
 def transcribe(data: bytes, mime: str) -> list[str]:
@@ -283,6 +348,8 @@ def write_script(
     minutes: float | None = None,
 ) -> tuple[list[Line], list[ChapterPlan], str]:
     """Write the lesson from a preset format, or from the student's own request."""
+    # Did the student pick a length, or are we using a default?
+    explicit_length = bool(minutes) or bool(request.strip() and MINUTES.search(request))
     if request.strip():
         label = "Your request"
         brief = (
@@ -309,7 +376,8 @@ def write_script(
         lines = _repair_arc([Line(**line) for line in fake.SCRIPTS[key]])
         return lines, _fake_chapters(lines, key), fake.OPTIONS.get(f"{key}_title", "")
 
-    target = minutes * WORDS_PER_MINUTE
+    # How many words fill the finished file, pauses included — see formats.word_budget.
+    target = word_budget(minutes, config.THINK_SECONDS, config.TURN_SECONDS)
     prompt = SCRIPT_PROMPT.format(
         label=label,
         brief=brief,
@@ -327,7 +395,10 @@ def write_script(
     # lesson" that runs fifteen seconds is the one failure a student notices
     # immediately. Ask once for the full length before giving up on it.
     spoken = _word_count(lines)
-    if spoken < target * 0.6:
+    # When the student chose the length, falling 15% short is a miss they will
+    # notice; for a preset's default length it only matters when it is far off.
+    explicit = bool(explicit_length)
+    if spoken < target * (0.85 if explicit else 0.6):
         log.info("script came back at %d words against a %d target; expanding", spoken, target)
         longer = (
             f"{prompt}\n\nAn earlier attempt came back at only {spoken} words. That is far "
@@ -476,46 +547,6 @@ when a point draws on the notes rather than on anything actually said.
 Lesson:
 {script}"""
 
-QUIZ_PROMPT = """Write quiz questions on a review a student has just read.
-
-Each question tests exactly one point of the review, and says which by its id.
-A student who read and understood that point answers correctly; a student who
-skimmed does not. So do not ask what the point's heading already states.
-
-- One question per point, in the review's order, for the points listed below.
-- pointId: the id of the point the question tests. Use the ids exactly as given.
-- q: the question. Ask about what the point actually says, not around it.
-- options: exactly four, one correct. Wrong options must be plausible to someone
-  who half-remembers — a near-miss number, a neighbouring term, the right idea
-  attached to the wrong thing. Never filler nobody would pick.
-- answer: the index, 0 to 3, of the correct option.
-- why: one sentence on why it is right, in the review's own words.
-
-Use only what the review says. Do not test outside knowledge, and do not test an
-"added" point any harder than a "notes" one.
-
-Review:
-{review}"""
-
-CARDS_PROMPT = """Write flashcards for a student who has just got some quiz questions wrong.
-
-Below are only the review points they missed. They have already read the review
-and failed to retain these, so a card that merely restates the point will fail the
-same way. Come at each from a different angle than the review did.
-
-- One or two cards per missed point. Two only where the point genuinely holds two
-  things worth recalling separately.
-- front: a question or a prompt, short enough to read at a glance.
-- back: the answer, in the fewest words that are still complete.
-- pointId: the point this card drills. Use the ids exactly as given.
-- Where the student picked a particular wrong answer, aim the card at that
-  confusion specifically rather than at the topic in general.
-- Stay inside what the review says. No new facts.
-
-Missed points:
-{points}"""
-
-
 class ReviewPoint(BaseModel):
     id: str
     heading: str
@@ -530,30 +561,6 @@ class ReviewPoint(BaseModel):
 class ReviewDoc(BaseModel):
     title: str = ""
     points: list[ReviewPoint]
-
-
-class QuizQuestion(BaseModel):
-    pointId: str
-    q: str
-    options: list[str]
-    answer: int
-    why: str = ""
-
-
-class QuizDoc(BaseModel):
-    questions: list[QuizQuestion]
-
-
-class Card(BaseModel):
-    pointId: str
-    front: str
-    back: str
-    # Names the wrong option they actually picked, when there was one.
-    because: str = ""
-
-
-class CardsDoc(BaseModel):
-    cards: list[Card]
 
 
 def _point_id(i: int) -> str:
@@ -600,97 +607,13 @@ def write_review(transcripts: list[str], script: list[dict] | None = None) -> Re
     return ReviewDoc(title=title, points=points[:9])
 
 
-def _review_block(review: ReviewDoc) -> str:
-    out = []
-    for p in review.points:
-        flag = " [flagged as examinable]" if p.exam else ""
-        out.append(f"[{p.id}] {p.heading}{flag}\n{p.body}")
-    return "\n\n".join(out)
+def _stem(w: str) -> str:
+    """Crude but enough: the review says "reflects", the chapter says "reflect"."""
+    for suf in ("ing", "es", "ed", "s"):
+        if w.endswith(suf) and len(w) - len(suf) >= 4:
+            return w[: -len(suf)]
+    return w
 
-
-def write_quiz(review: ReviewDoc) -> QuizDoc:
-    """One question per review point, each naming the point it tests."""
-    if config.FAKE_AI:
-        qs = [QuizQuestion(**q) for q in fake.QUIZ]
-        return QuizDoc(questions=_clean_quiz(qs, review))
-    doc = _generate(QUIZ_PROMPT.format(review=_review_block(review)), QuizDoc)
-    questions = _clean_quiz(doc.questions, review)
-    if not questions:
-        raise PipelineError("A quiz could not be written from this review.")
-    return QuizDoc(questions=questions)
-
-
-def _clean_quiz(questions: list[QuizQuestion], review: ReviewDoc) -> list[QuizQuestion]:
-    """Drop anything that breaks the chain or cannot be marked.
-
-    A question whose pointId names no real point is unmarkable and unusable for
-    flashcards afterwards, so it goes. So does one without exactly four distinct
-    options, or whose answer index is out of range.
-    """
-    valid = {p.id for p in review.points}
-    order = {p.id: i for i, p in enumerate(review.points)}
-    seen: set[str] = set()
-    out: list[QuizQuestion] = []
-    for q in questions:
-        opts = [re.sub(r"\s+", " ", str(o)).strip() for o in (q.options or [])]
-        if q.pointId not in valid or q.pointId in seen:
-            continue
-        if len(opts) != 4 or len(set(opts)) != 4 or not all(opts):
-            continue
-        if not isinstance(q.answer, int) or not (0 <= q.answer < 4):
-            continue
-        if not str(q.q or "").strip():
-            continue
-        seen.add(q.pointId)
-        out.append(q.model_copy(update={"options": opts, "q": q.q.strip()}))
-    out.sort(key=lambda q: order[q.pointId])
-    return out
-
-
-def write_cards(review: ReviewDoc, missed: list[str], chosen: dict[str, str] | None = None) -> CardsDoc:
-    """Cards for the points this student actually got wrong. Nothing else."""
-    wanted = [p for p in review.points if p.id in set(missed)]
-    if not wanted:
-        return CardsDoc(cards=[])
-    if config.FAKE_AI:
-        picked = chosen or {}
-        cards = [
-            Card(**c).model_copy(update={
-                "because": f"You picked: {picked[c['pointId']]}" if c["pointId"] in picked else ""
-            })
-            for c in fake.CARDS
-            if c["pointId"] in {p.id for p in wanted}
-        ]
-        return CardsDoc(cards=cards)
-    blocks = []
-    for p in wanted:
-        wrong = (chosen or {}).get(p.id)
-        note = f"\nThey answered: {wrong}" if wrong else ""
-        blocks.append(f"[{p.id}] {p.heading}\n{p.body}{note}")
-    doc = _generate(CARDS_PROMPT.format(points="\n\n".join(blocks)), CardsDoc)
-    valid = {p.id for p in wanted}
-    picked = chosen or {}
-    cards = [
-        c.model_copy(update={
-            "front": c.front.strip(),
-            "back": c.back.strip(),
-            "because": (c.because or "").strip() or (
-                f"You picked: {picked[c.pointId]}" if c.pointId in picked else ""
-            ),
-        })
-        for c in doc.cards
-        if c.pointId in valid and str(c.front or "").strip() and str(c.back or "").strip()
-    ]
-    return CardsDoc(cards=cards[: 2 * len(wanted)])
-
-
-# ---- tying chapters to the points the quiz tests ----
-#
-# The review already names the things a student has to learn, and the quiz tests
-# them by id. If a chapter can say which of those points it teaches, the loop
-# closes both ways: a student who missed p3 can jump straight to the audio that
-# explains it, instead of scrubbing. Matching is done here, deterministically,
-# rather than with another model call.
 
 _STOP_MATCH = set("""
 a an and are as at be been but by for from had has have how in into is it its of
@@ -698,14 +621,6 @@ on or that the their then there these they this to was were what when which who
 will with you your
 also first second third next last then thing things idea ideas point points
 """.split())
-
-
-def _stem(w: str) -> str:
-    """Crude but enough: the review says "reflects", the chapter says "reflect"."""
-    for suf in ("ing", "es", "ed", "s"):
-        if w.endswith(suf) and len(w) - len(suf) >= 4:
-            return w[: -len(suf)]
-    return w
 
 
 def _bag(text: str) -> set[str]:

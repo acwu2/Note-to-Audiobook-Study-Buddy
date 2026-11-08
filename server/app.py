@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from buddy import config, jobs, llm, quiz_api, store
+from buddy import config, jobs, llm, quiz, quiz_api, review_quiz, store
 from buddy.formats import FORMAT_ORDER, FORMATS, PipelineError
 
 logging.basicConfig(level=logging.INFO)
@@ -92,12 +92,24 @@ def _build_note(note_id: str, files: list[tuple[bytes, str]]) -> dict:
     return note
 
 
+# Python's mimetypes does not know HEIC on every system (the engineer hit this in
+# server/transcribe.py), and phones save HEIC by default, so name it outright.
+_EXT_MIME = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heif",
+    ".pdf": "application/pdf",
+}
+
+
 def _mime_of(upload: UploadFile) -> str:
     mime = (upload.content_type or "").lower()
     if mime in config.ALLOWED_TYPES:
         return mime
-    guessed = (mimetypes.guess_type(upload.filename or "")[0] or "").lower()
-    return guessed
+    name = (upload.filename or "").lower()
+    for ext, known in _EXT_MIME.items():
+        if name.endswith(ext):
+            return known
+    return (mimetypes.guess_type(name)[0] or "").lower()
 
 
 @app.post("/api/notes")
@@ -210,27 +222,32 @@ def get_audio(podcast_id: str, download: bool = False) -> FileResponse:
 
 
 # ---- Study loop: read a review, take the quiz, drill what you missed ----
+#
+# The review is written here; the quiz and deck come from the engine in quiz.py,
+# pointed at the review's points instead of a lesson script. See review_quiz.
 
 
 class ReviewRequest(BaseModel):
     noteId: str
-    # When the review follows a lesson, its points carry lineRefs back into that
-    # lesson's script, so a missed point can replay what taught it.
+    # When the review follows a lesson, each point records which lines of that
+    # lesson's script taught it, so a missed question can replay that stretch.
     podcastId: str | None = None
 
 
 class AnswerSheet(BaseModel):
-    reviewId: str
-    # pointId -> the index the student picked. Missing means unanswered, which
-    # counts as missed: not knowing and not answering are the same gap.
+    # questionId -> the index the student picked. A missing entry is a blank,
+    # which marks as wrong but is recorded as skipped, so the deck can tell a
+    # guess from a gap.
     answers: dict[str, int] = {}
 
 
 @app.post("/api/reviews")
 def create_review(req: ReviewRequest) -> dict:
+    """The page to read, plus the quiz on it — with the answers withheld."""
     note = store.load_note(req.noteId)
     if note is None:
         raise HTTPException(404, "Those notes aren't on the server any more. Upload them again.")
+
     script = None
     if req.podcastId:
         loaded = store.load_script(req.podcastId)
@@ -242,64 +259,54 @@ def create_review(req: ReviewRequest) -> dict:
     # different documents, so the lesson is part of the key.
     review_id = store.review_id_for(req.noteId, req.podcastId or "")
     cached = store.load_review(review_id)
-    if cached:
-        return cached
+    if cached is None:
+        doc = llm.write_review([p["transcript"] for p in note["pages"]], script)
+        cached = {
+            "reviewId": review_id,
+            "noteId": req.noteId,
+            **({"podcastId": req.podcastId} if req.podcastId else {}),
+            "title": doc.title or note.get("topic", "Review"),
+            "points": [p.model_dump(mode="json") for p in doc.points],
+        }
+        store.save_review(review_id, cached)
 
-    transcripts = [p["transcript"] for p in note["pages"]]
-    doc = llm.write_review(transcripts, script)
-    quiz = llm.write_quiz(doc)
-    review = {
-        "reviewId": review_id,
-        "noteId": req.noteId,
-        **({"podcastId": req.podcastId} if req.podcastId else {}),
-        "title": doc.title or note.get("topic", "Review"),
-        "points": [p.model_dump(mode="json") for p in doc.points],
-        # The quiz is written with the review and stored with it, so the two can
-        # never drift apart — a question always refers to a point that exists.
-        "questions": [q.model_dump(mode="json") for q in quiz.questions],
+    built = review_quiz.build(review_id, cached["points"])
+    # Return the declared fields rather than spreading the stored document. A
+    # review saved by an older build carries its own "questions" key, and
+    # spreading it shipped those alongside the real quiz — the client showed the
+    # stale ones and the attempt marked the real ones, so every answer was wrong.
+    return {
+        "reviewId": cached["reviewId"],
+        "noteId": cached["noteId"],
+        **({"podcastId": cached["podcastId"]} if cached.get("podcastId") else {}),
+        "title": cached["title"],
+        "points": cached["points"],
+        "quiz": quiz.public_quiz(built),
     }
-    store.save_review(review_id, review)
-    return review
 
 
-@app.post("/api/reviews/{review_id}/marks")
-def mark_quiz(review_id: str, sheet: AnswerSheet) -> dict:
-    """Mark the quiz and build flashcards from exactly what was missed."""
+@app.post("/api/reviews/{review_id}/attempt")
+def attempt_review_quiz(review_id: str, sheet: AnswerSheet) -> dict:
+    """Mark the quiz, name the gaps, and build cards for those gaps alone."""
     review = store.load_review(review_id)
     if review is None:
         raise HTTPException(404, "That review has expired. Make a new one from your notes.")
 
-    questions = {q["pointId"]: q for q in review["questions"]}
-    results, missed, chosen = [], [], {}
-    for point_id, q in questions.items():
-        picked = sheet.answers.get(point_id)
-        correct = picked == q["answer"]
-        if not correct:
-            missed.append(point_id)
-            if isinstance(picked, int) and 0 <= picked < len(q["options"]):
-                chosen[point_id] = q["options"][picked]
-        results.append({
-            "pointId": point_id,
-            "q": q["q"],
-            "options": q["options"],
-            # Leaving it blank is not the same as guessing wrong: one is a gap
-            # in knowledge, the other may be a gap in attention.
-            "chosen": picked,
-            "skipped": picked is None,
-            "correct": correct,
-            "answer": q["answer"],
-            "why": q.get("why", ""),
-        })
-
-    doc = llm.ReviewDoc(points=[llm.ReviewPoint(**p) for p in review["points"]])
-    cards = llm.write_cards(doc, missed, chosen)
-    return {
-        "reviewId": review_id,
-        "score": len(questions) - len(missed),
-        "total": len(questions),
-        "results": results,
-        "missedPointIds": missed,
-        # Empty when they got everything right — there is nothing to reinforce,
-        # and inventing cards would waste the one thing this step is good at.
-        "cards": [c.model_dump(mode="json") for c in cards.cards],
-    }
+    built = review_quiz.build(review_id, review["points"])
+    attempt = quiz.grade(built, sheet.answers)
+    attempt["reviewId"] = review_id
+    quiz.save_attempt(attempt)
+    deck = review_quiz.deck_for(attempt, review["points"])
+    # A gap's lineRefs index the review's points; each point knows which lines of
+    # the lesson taught it. Resolve that here so the player gets script lines it
+    # can seek to, with no second lookup.
+    points = review["points"]
+    for gap in attempt.get("gaps", []):
+        lines = {
+            ln
+            for i in gap.get("lineRefs", [])
+            if isinstance(i, int) and 0 <= i < len(points)
+            for ln in points[i].get("lineRefs", [])
+        }
+        gap["scriptLines"] = sorted(lines)
+    return {**attempt, "deck": deck, **({"podcastId": review["podcastId"]} if review.get("podcastId") else {})}

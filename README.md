@@ -1,43 +1,52 @@
-# Note-to-Audiobook Study Buddy
+# Study Buddy
 
-Turn a photo of handwritten notes into an audiobook and a study buddy you can question. The UI uses NotebookLM's layout as its benchmark: sources on the left, chat in the middle, studio on the right.
+Photograph your handwritten notes. Get a review to read, a quiz on it, flashcards for what you missed, and an audio lesson that teaches the notes back to you.
 
-This is the **frontend first draft**. It runs on sample data, and nothing calls a backend yet.
+```
+upload notes -> review -> quiz -> flashcards from your weak points
+             \-> audio lesson (two hosts, questions you answer out loud, chapters)
+```
 
 ## Run it
 
 ```bash
-npm install
-npm run dev
+# 1. API key (free): https://aistudio.google.com  -> Get API key (starts with AIza or AQ.)
+cp server/.env.example server/.env     # then put the key after GEMINI_API_KEY=
+
+# 2. API (checks your setup first, real mode only)
+./server/run.sh            # http://127.0.0.1:8000, replaces only what's on that port
+
+# 3. App
+npm install && npm run dev # http://localhost:5173
 ```
 
-## What's here
+Confirm `http://127.0.0.1:8000/api/health` says `"fakeAi": false`. If it says `true`
+you are looking at canned samples, whatever you upload.
 
-| Panel | What it does | Pipeline step |
-| --- | --- | --- |
-| Sources | Upload photos; each page has Photo / Transcript / Read-aloud tabs; toggle which pages answers may use | 1 · Read, 2 · Prepare |
-| Ask your notes | Notebook guide, grounded chat with numbered source citations, read-aloud on answers | 4 · Ask |
-| Studio | Audiobook player (speed, Kokoro voice, MP3 download), study tools, saved notes | 3 · Speak |
+## What it does
 
-On screens narrower than 900px, a tab bar shows one panel at a time.
+| Step | What happens |
+| --- | --- |
+| Upload | Photos or PDFs, read by Gemini vision. Unreadable words become `[unclear]`, never guesses. |
+| Review | 4-9 discrete points, each labelled `notes` or `added`, with `exam` set only where *your* notes flag it. |
+| Quiz | One question per point, plausible wrong answers, marked on the server (answers never reach the page). |
+| Flashcards | Only for points you missed or skipped. A wrong answer's card names the exact confusion you picked. |
+| Lesson | Hook, teach, check, answer, recap. A question is followed by 3.5s of silence so you can answer aloud. Chapters seek to exact offsets. |
+| Length | Ask for any 1-20 minutes, or say it in words ("a 5 minute overview"). |
+| Replay | A missed question maps back to the lines of the lesson that taught it (`scriptLines`). |
 
+## Limits you will hit (verified, not guessed)
+
+- **Free tier is 20 generate requests per day per model.** A full session is roughly 8-10 requests. The server falls back to the next model when one runs out, and the last resort is `gemini-3.1-flash-lite`, which writes noticeably **shorter** lessons. Check `askedMinutes` against `seconds` on the result.
+- **`gemini-2.5-flash` is retired for new keys** (listed, but returns 404). Default is `gemini-3.5-flash`.
+- **Long length requests can undershoot.** Measured: a 6 minute request gave 4.85 minutes on a strong model. The word budget is calibrated on real lessons (Kokoro speaks ~146 wpm, not the 184 fixtures suggested) but a fresh generation on a strong model has **not** been re-verified since the recalibration.
+- Notes uploaded before a pipeline change keep their old shape (for example, no `suggestions`). Upload again.
+
+## Checks
+
+```bash
+./server/.venv/bin/python server/check_setup.py --live     # key, model, ffmpeg, Kokoro, one real call
+python3 benchmark/check_grounding.py --all                  # flags words in a script the notes never said
 ```
-src/
-  App.tsx                 page layout + shared state
-  components/             TopBar, SourcesPanel, ChatPanel, StudioPanel, Icons
-  data/sampleNotebook.ts  sample notes, voices, suggested questions
-  lib/api.ts              backend contract (stubs) — one function per step
-  lib/useAudiobookPlayer.ts  simulated player; swap for an <audio> element
-  types.ts
-```
 
-## Next: the backend
-
-`src/lib/api.ts` defines the four endpoints the UI expects:
-
-1. `POST /transcribe`: photo → text (Gemini vision; unreadable words marked `[unclear]`)
-2. `POST /prepare`: text → text written for the ear
-3. `POST /speak`: text + voice → MP3 (Kokoro)
-4. `POST /ask`: question + enabled source ids → grounded answer + citations
-
-Keep the Gemini API key on the server. Set `VITE_API_BASE` if the API isn't served at `/api`.
+`benchmark/README.md` has the NotebookLM comparison and the grounding method.

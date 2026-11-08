@@ -20,6 +20,7 @@ Exit status is 1 when anything is flagged, so CI can gate on it.
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -62,7 +63,13 @@ begin begins next last final finally also again plus minus each per
 # ever a claim about the subject, so flagging them only buries the real finding.
 # This list is the difference between a usable report and noise; extend it when a
 # false positive shows up, never the other way.
+# Connectives and verbs a teacher uses to move between facts. None of them is a
+# claim about the subject. Deliberately NOT here: any noun naming a thing
+# ("water", "mitochondria") or a quantity word that asserts something
+# ("partially"), because those are exactly what a leak looks like.
 STOP |= set("""
+whereas furthermore crucially according consists allowing requires combined
+subtract significantly effective amounts value values indicates indicate
 add adds answer answers ask asks became become becomes bring brings brought
 build builds built carry carries carried catch caught change changes check
 checks choose chose comes coming cover covers covered describe described detail
@@ -100,6 +107,7 @@ def collapse_spelled(text: str) -> str:
 
 
 def words(text: str) -> list[str]:
+    text = unicodedata.normalize("NFKD", text)
     text = collapse_spelled(text)
     # keep digits attached to letters (FADH2, CO2, 2x)
     return re.findall(r"[A-Za-z][A-Za-z0-9]*|\d+", text.lower())
@@ -114,6 +122,66 @@ def variants(w: str) -> set[str]:
     out.add(w + "s")
     if w.endswith("y") and len(w) > 3:
         out.add(w[:-1] + "ies")
+    return out
+
+
+ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def number_words(n: int) -> set[str]:
+    """Every word a voice might use to say n: 25 -> twenty, five; 602 -> six, hundred, two."""
+    out: set[str] = set()
+    if n < 20:
+        out.add(ONES[n])
+    elif n < 100:
+        out.add(TENS[n // 10])
+        if n % 10:
+            out.add(ONES[n % 10])
+    elif n < 1000:
+        out |= {ONES[n // 100], "hundred"}
+        if n % 100:
+            out |= number_words(n % 100)
+    else:
+        out |= {"thousand"} | number_words(n // 1000)
+        if n % 1000:
+            out |= number_words(n % 1000)
+    # "oh" and "point" are how decimals and years are read
+    return out | {"oh", "point"} if n < 10 else out
+
+
+# A symbol on the page is spoken as a word, so it grounds that word.
+SYMBOL_WORDS = {
+    "=": {"equals", "equal", "equation"}, "\u00b0": {"degrees", "degree", "celsius"},
+    "\u00d7": {"times", "multiplied"}, "\u2248": {"approximately", "roughly", "approximate"},
+    "\u00b1": {"plus", "minus"}, "-": {"negative", "minus"}, "\u2212": {"negative", "minus"},
+    "+": {"plus"}, "%": {"percent"}, "\u2192": {"leads", "becomes", "gives"},
+    "/": {"over", "per"}, "<": {"less"}, ">": {"greater", "more"},
+}
+
+
+def spoken_forms(raw_text: str, vocab: set[str]) -> set[str]:
+    """Words the notes ground only by being read aloud: digits and symbols."""
+    out: set[str] = set()
+    text = unicodedata.normalize("NFKD", raw_text)
+    for sym, spoken in SYMBOL_WORDS.items():
+        if sym in text:
+            out |= spoken
+    # Notation read aloud: [H+] is "hydrogen ion concentration", [OH-] "hydroxide".
+    if "[" in text:
+        out.add("concentration")
+    low = {t.lower() for t in vocab}
+    if "h" in low:
+        out |= {"hydrogen", "ion", "ions"}
+    if "oh" in low:
+        out |= {"hydroxide", "ion", "ions"}
+    for tok in vocab:
+        if tok.isdigit() and int(tok) < 100000:
+            out |= number_words(int(tok))
+    # abbreviations: "conj." grounds "conjugate", "amt" grounds "amount"
+    for tok in vocab:
+        if tok.isalpha() and len(tok) >= 4:
+            out.add(tok)
     return out
 
 
@@ -143,6 +211,8 @@ def note_vocab(note: dict) -> set[str]:
         for w in words(page.get("transcript", "")):
             vocab |= variants(w)
     vocab |= set(words(note.get("topic", "")))
+    raw = " ".join(p.get("transcript", "") for p in note.get("pages", []))
+    vocab |= spoken_forms(raw, vocab)
     for digit, spelled in NUMBER_WORDS.items():
         if digit in vocab:
             vocab |= spelled
@@ -170,6 +240,8 @@ def check(note: dict, script: list[dict]) -> list[tuple[int, str, str, list[str]
             if w in skip or len(w) < 3 or w in vocab or w in seen:
                 continue
             if variants(w) & vocab:
+                continue
+            if any(len(v) >= 4 and w.startswith(v) for v in vocab):
                 continue
             seen.add(w)
             unknown.append(w)

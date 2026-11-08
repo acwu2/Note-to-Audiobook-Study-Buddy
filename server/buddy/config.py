@@ -17,13 +17,29 @@ DATA_DIR = Path(os.environ.get("STUDY_BUDDY_DATA", SERVER_DIR / "data"))
 # switching model also resets the quota.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
+# Free-tier quota is per model, so a spent daily allowance on one is not a spent
+# allowance on the next. When the primary runs dry the server walks this list
+# instead of failing the demo. Cache ids key on GEMINI_MODEL only, so being
+# served by a fallback never invalidates cached results.
+GEMINI_FALLBACKS = [
+    m.strip()
+    for m in os.environ.get(
+        "GEMINI_FALLBACKS", "gemini-3.7-flash,gemini-3.6-flash,gemini-3.8-flash,gemini-3.1-flash-lite"
+    ).split(",")
+    if m.strip()
+]
+
 # Test modes: run the whole flow without a Gemini key (FAKE_AI) or without
 # Kokoro (FAKE_TTS). Fake AI returns sample notes; fake TTS makes tones.
 FAKE_AI = os.environ.get("FAKE_AI") == "1"
 FAKE_TTS = os.environ.get("FAKE_TTS") == "1"
 
 # Bump when a prompt, format or voice changes, so cached results are rebuilt.
-PIPELINE_VERSION = "5"
+PIPELINE_VERSION = "6"  # 6: transcription prompt now handles margin notes and crossings-out
+
+# Seconds to wait on one Gemini request before giving up and retrying. The
+# engineer's transcribe.py uses 120; ours also writes long scripts, so 180.
+REQUEST_TIMEOUT_SECONDS = 180
 
 SAMPLE_RATE = 24_000  # Kokoro's output rate
 # Pacing. Kokoro leaves ~0.3s before and ~0.5s after each line; audio._trim strips
