@@ -84,16 +84,21 @@ def load_status(podcast_id: str) -> dict | None:
     return _read_json(podcast_dir(podcast_id) / "status.json")
 
 
-def save_script(podcast_id: str, lines: list[dict], chapters: list[dict] | None = None) -> None:
+def save_script(
+    podcast_id: str,
+    lines: list[dict],
+    chapters: list[dict] | None = None,
+    title: str = "",
+) -> None:
     _write_json(
         podcast_dir(podcast_id) / "script.json",
-        {"lines": lines, "chapters": chapters or []},
+        {"lines": lines, "chapters": chapters or [], "title": title},
     )
 
 
-def load_script(podcast_id: str) -> tuple[list[dict], list[dict]] | None:
-    """The written lesson and its chapter plan, or None when nothing is cached."""
+def load_script(podcast_id: str) -> tuple[list[dict], list[dict], str] | None:
+    """The lesson, its chapter plan and its title, or None when nothing is cached."""
     saved = _read_json(podcast_dir(podcast_id) / "script.json")
     if not saved:
         return None
-    return saved["lines"], saved.get("chapters", [])
+    return saved["lines"], saved.get("chapters", []), saved.get("title", "")

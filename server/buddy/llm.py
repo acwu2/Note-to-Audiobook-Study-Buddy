@@ -79,9 +79,18 @@ Rules:
 
 Also divide the lesson into chapters the listener can jump between.
 - Between two and seven chapters, in order, the first starting at line 0.
-- A chapter starts where a new idea begins, never in the middle of one, and never
-  between a check and its answer.
-- Title each in two to five words, using the notes' own vocabulary.
+- A chapter starts where a new idea begins: on the line that starts teaching it.
+  Never in the middle of an idea, never on a check, and never on an answer —
+  someone jumping there would land on a question with no idea what it is about,
+  or on a reply to a question they never heard.
+- Title each chapter by its subject, in two to five words, using the notes' own
+  vocabulary: "Why leaves look green", "Splitting water". Never name the move
+  instead of the subject — no "Check 1", "Question 2", "Introduction", "Recap".
+  A student scanning the list should be able to find the bit they want.
+
+Finally, give the lesson a title: what it covers, at most eight words, in the notes'
+own vocabulary. Name the subject, not the request — "The Krebs cycle, step by step",
+never "Your five minute overview".
 
 Notes:
 {notes}"""
@@ -143,6 +152,7 @@ class ChapterPlan(BaseModel):
 class Script(BaseModel):
     lines: list[Line]
     chapters: list[ChapterPlan] = []
+    title: str = ""
 
 
 # ---- Calls ----
@@ -239,7 +249,7 @@ def write_script(
     format_id: str | None,
     topic: str | None,
     request: str = "",
-) -> tuple[list[Line], list[ChapterPlan]]:
+) -> tuple[list[Line], list[ChapterPlan], str]:
     """Write the lesson from a preset format, or from the student's own request."""
     if request.strip():
         label = "Your request"
@@ -260,8 +270,8 @@ def write_script(
 
     if config.FAKE_AI:
         key = format_id if format_id in fake.SCRIPTS else "full_episode"
-        lines = [Line(**line) for line in fake.SCRIPTS[key]]
-        return _repair_arc(lines), _fake_chapters(lines)
+        lines = _repair_arc([Line(**line) for line in fake.SCRIPTS[key]])
+        return lines, _fake_chapters(lines), ""
 
     prompt = SCRIPT_PROMPT.format(
         label=label,
@@ -274,16 +284,34 @@ def write_script(
     if not lines:
         raise PipelineError("The AI wrote an empty script. Try a clearer photo.")
     lines = _repair_arc(lines)
-    return lines, _clean_chapters(script.chapters, lines)
+    title = re.sub(r"\s+", " ", script.title or "").strip()[:80]
+    return lines, _clean_chapters(script.chapters, lines), title
+
+
+def _section_start(lines: list[Line], i: int) -> int:
+    """Walk back to the first line of the teaching run that leads into line i.
+
+    A chapter that opens on a question drops the listener into a check with no
+    idea what it is checking — a milder version of why a chapter never opens on
+    an answer. The teaching that sets the question up is the real section start.
+    """
+    j = i
+    while j > 0 and lines[j - 1].role in (Role.TEACH, Role.HOOK):
+        j -= 1
+    return j
 
 
 def _fake_chapters(lines: list[Line]) -> list[ChapterPlan]:
-    """A plausible plan for FAKE_AI: start a chapter at each hook and each check."""
-    plan = [ChapterPlan(title="Where this fits", startLine=0)]
-    for i, line in enumerate(lines):
-        if i and line.role is Role.CHECK:
-            plan.append(ChapterPlan(title=f"Check {len(plan)}", startLine=i))
-    return _clean_chapters(plan, lines)
+    """FAKE_AI gets no chapters.
+
+    A chapter title has to name what that stretch is about, which is a language
+    task — the model does it as part of writing the lesson. Faking it from the
+    text mechanically produces either a label about the line's role ("Check 1")
+    or a mid-sentence fragment ("It makes N A D"), and both are worse than no
+    chapter list at all: a student scanning them learns nothing and clicks into
+    the wrong place. So the fake path returns nothing and the UI hides the list.
+    """
+    return []
 
 
 def _clean_chapters(plan: list[ChapterPlan], lines: list[Line]) -> list[ChapterPlan]:
@@ -299,9 +327,13 @@ def _clean_chapters(plan: list[ChapterPlan], lines: list[Line]) -> list[ChapterP
         start = int(ch.startLine)
         if not title or not (0 <= start < len(lines)):
             continue
-        if out and start <= out[-1].startLine:
-            continue
         if lines[start].role is Role.ANSWER:
+            continue
+        # A chapter that opens on a question is disorienting in the same way, so
+        # move it back to the teaching that sets the question up.
+        if lines[start].role is Role.CHECK:
+            start = _section_start(lines, start)
+        if out and start <= out[-1].startLine:
             continue
         out.append(ChapterPlan(title=title, startLine=start))
     if len(out) < 2:

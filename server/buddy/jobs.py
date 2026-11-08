@@ -54,12 +54,16 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
         if cached is None:
             set_state("writing")
             transcripts = [p["transcript"] for p in note["pages"]]
-            written, plan = llm.write_script(
+            written, plan, written_title = llm.write_script(
                 transcripts,
                 option["id"],
                 option.get("topic"),
                 request=option.get("request", ""),
             )
+            # A custom episode has only the student's request to go on until the
+            # lesson exists. Once it does, name it after what it actually covers.
+            if option.get("request") and written_title:
+                option["title"] = written_title
             lines = [
                 {
                     "host": line.host.value,
@@ -70,9 +74,11 @@ def _run(podcast_id: str, note: dict, option: dict) -> None:
                 for line in written
             ]
             plan_json = [{"title": c.title, "startLine": c.startLine} for c in plan]
-            store.save_script(podcast_id, lines, plan_json)
+            store.save_script(podcast_id, lines, plan_json, option["title"])
         else:
-            lines, plan_json = cached
+            lines, plan_json, cached_title = cached
+            if option.get("request") and cached_title:
+                option["title"] = cached_title
         set_state("recording", script=lines)
         rendered = audio.render(
             [(line["host"], line["text"], line.get("role", "teach")) for line in lines],
